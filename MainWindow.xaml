@@ -5,8 +5,41 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:RadioApp"
         mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
+        Title="MainWindow" Height="307" Width="451">
     <Grid>
-        
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <ListBox Grid.Row="1" HorizontalAlignment="Center" Width="451" VerticalAlignment="Center" Height="146">
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                </Style>
+            </ListBox.ItemContainerStyle>
+            <ListBoxItem Content="ListBoxItem1" HorizontalAlignment="Center" VerticalAlignment="Center" HorizontalContentAlignment="Center"/>
+            <ListBoxItem Content="ListBoxItem1" HorizontalAlignment="Center" VerticalAlignment="Center" HorizontalContentAlignment="Center"/>
+            <ListBoxItem Content="ListBoxItem1" HorizontalAlignment="Center" VerticalAlignment="Center" HorizontalContentAlignment="Center"/>
+        </ListBox>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition/>
+                <RowDefinition/>
+                <RowDefinition/>
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition/>
+                <ColumnDefinition/>
+                <ColumnDefinition/>
+                <ColumnDefinition/>
+                <ColumnDefinition/>
+            </Grid.ColumnDefinitions>
+            <Button Content="1" Grid.Row="1" Grid.Column="1"/>
+            <Button Content="2" Grid.Row="1" Grid.Column="2"/>
+            <Button Content="3" Grid.Row="1" Grid.Column="3"/>
+        </Grid>
     </Grid>
 </Window>
