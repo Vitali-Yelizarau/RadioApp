@@ -54,12 +54,7 @@
                            Text="Now playing: "/>
             </Grid>
         </Grid>
-        <ListBox Grid.Column="1">
-            <TextBlock Text="Test"/>
-            <TextBlock Text="Test"/>
-            <TextBlock Text="Test"/>
-            <TextBlock Text="Test"/>
-            <TextBlock Text="Test"/>
+        <ListBox Grid.Column="1" x:Name="StationsListBox">
         </ListBox>
     </Grid>
 </Window>

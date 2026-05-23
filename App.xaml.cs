@@ -1,17 +1,16 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Configuration;
-using System.Data;
-using System.Linq;
-using System.Threading.Tasks;
+﻿using RadioApp.Data;
+using System.Data.Entity;
 using System.Windows;
 
 namespace RadioApp
 {
-    /// <summary>
-    /// Interaction logic for App.xaml
-    /// </summary>
     public partial class App : Application
     {
+        protected override void OnStartup(StartupEventArgs e)
+        {
+            Database.SetInitializer<RadioDbContext>(null);
+
+            base.OnStartup(e);
+        }
     }
 }
