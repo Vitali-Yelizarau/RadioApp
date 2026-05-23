@@ -34,16 +34,16 @@ namespace RadioApp
             _databaseService = new RadioDatabaseService();
             _playlist = new List<MediaItem>();
 
-            Loaded += MainWindow_Loaded;
+            Loaded += async (s, e) => await MainWindow_LoadedAsync(s, e);
         }
 
-        private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        private async Task MainWindow_LoadedAsync(object sender, RoutedEventArgs e)
         {
-            _databaseService.InitializeDatabase();
+            await _databaseService.InitializeDatabaseAsync();
 
             //MessageBox.Show("Database initialized.");
 
-            _playlist = _databaseService.GetEnabledMediaItems();
+            _playlist = await _databaseService.GetEnabledMediaItems();
 
             StationsListBox.ItemsSource = _playlist;
             StationsListBox.DisplayMemberPath = "Title";

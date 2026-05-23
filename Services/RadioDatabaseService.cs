@@ -4,31 +4,32 @@ using Serilog;
 using System.Collections.Generic;
 using System.Data.Entity;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace RadioApp.Services
 {
     public class RadioDatabaseService
     {
-        public void InitializeDatabase()
+        public async Task InitializeDatabaseAsync()
         {
             Log.Information("Database initialization started.");
 
             using (var db = new RadioDbContext())
             {
-                CreateTablesIfNotExist(db);
+                await CreateTablesIfNotExistAsync(db);
                 Log.Debug("Database tables checked/created.");
 
                 if (!db.MediaItems.Any())
                 {
                     Log.Information("MediaItems table is empty. Adding default media items.");
-                    AddDefaultMediaItems(db);
+                    await AddDefaultMediaItemsAsync(db);
                 }
             }
 
             Log.Information("Database initialization finished.");
         }
 
-        private void CreateTablesIfNotExist(RadioDbContext db)
+        private async Task CreateTablesIfNotExistAsync(RadioDbContext db)
         {
             string createMediaItemsTableSql = @"
                 CREATE TABLE IF NOT EXISTS MediaItems
@@ -56,11 +57,11 @@ namespace RadioApp.Services
                 );
             ";
 
-            db.Database.ExecuteSqlCommand(createMediaItemsTableSql);
-            db.Database.ExecuteSqlCommand(createPlayHistoryItemsTableSql);
+            await db.Database.ExecuteSqlCommandAsync(createMediaItemsTableSql);
+            await db.Database.ExecuteSqlCommandAsync(createPlayHistoryItemsTableSql);
         }
 
-        private void AddDefaultMediaItems(RadioDbContext db)
+        private async Task AddDefaultMediaItemsAsync(RadioDbContext db)
         {
             db.MediaItems.Add(new MediaItem
             {
@@ -86,20 +87,18 @@ namespace RadioApp.Services
                 IsEnabled = true
             });
 
-            db.SaveChanges();
+            await db.SaveChangesAsync();
         }
 
-        public List<MediaItem> GetEnabledMediaItems()
+        public async Task<List<MediaItem>> GetEnabledMediaItems()
         {
             using (var db = new RadioDbContext())
             {
-                CreateTablesIfNotExist(db);
-
                 return db.MediaItems
-                    .Where(x => x.IsEnabled)
-                    .OrderBy(x => x.SortOrder)
-                    .ThenBy(x => x.Title)
-                    .ToList();
+                         .Where(x => x.IsEnabled)
+                         .OrderBy(x => x.SortOrder)
+                         .ThenBy(x => x.Title)
+                         .ToList();
             }
         }
 
@@ -107,22 +106,18 @@ namespace RadioApp.Services
         {
             using (var db = new RadioDbContext())
             {
-                CreateTablesIfNotExist(db);
-
                 return db.MediaItems
-                    .Where(x => x.IsEnabled && x.SourceType == MediaSourceType.Radio)
-                    .OrderBy(x => x.SortOrder)
-                    .ThenBy(x => x.Title)
-                    .ToList();
+                         .Where(x => x.IsEnabled && x.SourceType == MediaSourceType.Radio)
+                         .OrderBy(x => x.SortOrder)
+                         .ThenBy(x => x.Title)
+                         .ToList();
             }
         }
 
-        public void AddPlayHistory(int mediaItemId, string trackName)
+        public async Task AddPlayHistoryAsync(int mediaItemId, string trackName)
         {
             using (var db = new RadioDbContext())
             {
-                CreateTablesIfNotExist(db);
-
                 db.PlayHistoryItems.Add(new PlayHistoryItem
                 {
                     MediaItemId = mediaItemId,
@@ -130,7 +125,7 @@ namespace RadioApp.Services
                     WhenPlayed = System.DateTime.Now
                 });
 
-                db.SaveChanges();
+                await db.SaveChangesAsync();
             }
         }
 
@@ -138,13 +133,11 @@ namespace RadioApp.Services
         {
             using (var db = new RadioDbContext())
             {
-                CreateTablesIfNotExist(db);
-
                 return db.PlayHistoryItems
-                    .Include(x => x.MediaItem)
-                    .OrderByDescending(x => x.WhenPlayed)
-                    .Take(count)
-                    .ToList();
+                         .Include(x => x.MediaItem)
+                         .OrderByDescending(x => x.WhenPlayed)
+                         .Take(count)
+                         .ToList();
             }
         }
     }
