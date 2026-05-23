@@ -1,5 +1,6 @@
 ﻿using RadioApp.Data;
 using RadioApp.Models;
+using Serilog;
 using System.Collections.Generic;
 using System.Data.Entity;
 using System.Linq;
@@ -10,15 +11,21 @@ namespace RadioApp.Services
     {
         public void InitializeDatabase()
         {
+            Log.Information("Database initialization started.");
+
             using (var db = new RadioDbContext())
             {
                 CreateTablesIfNotExist(db);
+                Log.Debug("Database tables checked/created.");
 
                 if (!db.MediaItems.Any())
                 {
+                    Log.Information("MediaItems table is empty. Adding default media items.");
                     AddDefaultMediaItems(db);
                 }
             }
+
+            Log.Information("Database initialization finished.");
         }
 
         private void CreateTablesIfNotExist(RadioDbContext db)

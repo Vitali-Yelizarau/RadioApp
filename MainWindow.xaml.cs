@@ -41,7 +41,7 @@ namespace RadioApp
         {
             _databaseService.InitializeDatabase();
 
-            MessageBox.Show("Database initialized.");
+            //MessageBox.Show("Database initialized.");
 
             _playlist = _databaseService.GetEnabledMediaItems();
 

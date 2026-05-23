@@ -1,6 +1,10 @@
 ﻿using RadioApp.Data;
+using Serilog;
+using System;
 using System.Data.Entity;
+using System.IO;
 using System.Windows;
+using System.Windows.Threading;
 
 namespace RadioApp
 {
@@ -8,9 +12,76 @@ namespace RadioApp
     {
         protected override void OnStartup(StartupEventArgs e)
         {
+            ConfigureLogging();
+            DispatcherUnhandledException += App_DispatcherUnhandledException;
+            AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
+
+            Log.Information("Application starting...");
+            Log.Information("Application base directory: {BaseDirectory}", AppDomain.CurrentDomain.BaseDirectory);
+
             Database.SetInitializer<RadioDbContext>(null);
 
             base.OnStartup(e);
+        }
+
+        protected override void OnExit(ExitEventArgs e)
+        {
+            Log.Information("Application exiting...");
+            Log.CloseAndFlush();
+
+            base.OnExit(e);
+        }
+
+        private void ConfigureLogging()
+        {
+            string logsDirectory = Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
+                "Logs"
+            );
+
+            Directory.CreateDirectory(logsDirectory);
+
+            string logFilePath = Path.Combine(
+                logsDirectory,
+                "radioapp-.txt"
+            );
+
+            Log.Logger = new LoggerConfiguration()
+                .MinimumLevel.Debug()
+                .WriteTo.File(
+                    logFilePath,
+                    rollingInterval: RollingInterval.Day,
+                    retainedFileCountLimit: 14,
+                    shared: true,
+                    outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}"
+                )
+                .CreateLogger();
+        }
+
+        private void App_DispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+        {
+            Log.Fatal(e.Exception, "Unhandled UI exception");
+
+            MessageBox.Show(
+                "An unexpected error occurred. Details have been logged.",
+                "Error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error
+            );
+
+            e.Handled = true;
+        }
+
+        private void CurrentDomain_UnhandledException(object sender, UnhandledExceptionEventArgs e)
+        {
+            if (e.ExceptionObject is Exception exception)
+            {
+                Log.Fatal(exception, "Unhandled application exception");
+            }
+            else
+            {
+                Log.Fatal("Unhandled application exception: {ExceptionObject}", e.ExceptionObject);
+            }
         }
     }
 }
