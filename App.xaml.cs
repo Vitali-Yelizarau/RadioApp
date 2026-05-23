@@ -43,7 +43,7 @@ namespace RadioApp
 
             string logFilePath = Path.Combine(
                 logsDirectory,
-                "radioapp-.txt"
+                "radioapp-.log"
             );
 
             Log.Logger = new LoggerConfiguration()
