@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:RadioApp"
         mc:Ignorable="d"
-        Title="MainWindow" Height="286" Width="351" MinWidth="350" MinHeight="310">
+        Title="My Radio Player" Height="286" Width="351" MinWidth="350" MinHeight="310">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
@@ -80,16 +80,16 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
-                <Button x:Name="AddButton"
-                        Content="+"
-                        FontSize="28"
-                        FontWeight="Bold"
+                <Button FontFamily="Segoe MDL2 Assets"
+                        Content="&#xE710;"
+                        FontSize="22"
+                        ToolTip="Add station"
                         HorizontalContentAlignment="Center"
                         VerticalContentAlignment="Center"/>
-                <Button Grid.Column="1" x:Name="DeleteButton"
-                        Content="-"
-                        FontSize="32"
-                        FontWeight="Bold"
+                <Button Grid.Column="1" 
+                        FontFamily="Segoe MDL2 Assets"
+                        Content="&#xE738;"
+                        FontSize="22"
                         HorizontalContentAlignment="Center"
                         VerticalContentAlignment="Center"
                         ToolTip="Delete station"/>
@@ -97,7 +97,7 @@
                         Grid.Column="2" 
                         FontFamily="Segoe MDL2 Assets"
                         Content="&#xE70F;"
-                        FontSize="15"
+                        FontSize="20"
                         HorizontalContentAlignment="Center"
                         VerticalContentAlignment="Center"
                         ToolTip="Edit station"/>
