@@ -13,22 +13,28 @@ namespace RadioApp
         protected override void OnStartup(StartupEventArgs e)
         {
             ConfigureLogging();
+
+            AppDomain.CurrentDomain.SetData(
+                "DataDirectory",
+                AppDomain.CurrentDomain.BaseDirectory
+            );
+
+            Database.SetInitializer<RadioDbContext>(null);
+
             DispatcherUnhandledException += App_DispatcherUnhandledException;
             AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
 
             Log.Information("Application starting...");
             Log.Information("Application base directory: {BaseDirectory}", AppDomain.CurrentDomain.BaseDirectory);
-
-            Database.SetInitializer<RadioDbContext>(null);
+            Log.Information("Application data directory: {DataDirectory}", AppDomain.CurrentDomain.GetData("DataDirectory"));
 
             base.OnStartup(e);
         }
 
         protected override void OnExit(ExitEventArgs e)
         {
-            Log.Information("Application exiting...");
+            Log.Information("Application exiting with code {ExitCode}", e.ApplicationExitCode);
             Log.CloseAndFlush();
-
             base.OnExit(e);
         }
 
@@ -43,7 +49,7 @@ namespace RadioApp
 
             string logFilePath = Path.Combine(
                 logsDirectory,
-                "radioapp-.log"
+                "radioapp-.txt"
             );
 
             Log.Logger = new LoggerConfiguration()
@@ -63,8 +69,8 @@ namespace RadioApp
             Log.Fatal(e.Exception, "Unhandled UI exception");
 
             MessageBox.Show(
-                "An unexpected error occurred. Details have been logged.",
-                "Error",
+                "Произошла непредвиденная ошибка. Подробности записаны в лог.",
+                "Ошибка",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error
             );
@@ -74,7 +80,9 @@ namespace RadioApp
 
         private void CurrentDomain_UnhandledException(object sender, UnhandledExceptionEventArgs e)
         {
-            if (e.ExceptionObject is Exception exception)
+            Exception exception = e.ExceptionObject as Exception;
+
+            if (exception != null)
             {
                 Log.Fatal(exception, "Unhandled application exception");
             }

@@ -1,5 +1,7 @@
 ﻿using RadioApp.Models;
+using System;
 using System.Data.Entity;
+using System.IO;
 
 namespace RadioApp.Data
 {
@@ -7,6 +9,17 @@ namespace RadioApp.Data
     {
         public DbSet<MediaItem> MediaItems { get; set; }
         public DbSet<PlayHistoryItem> PlayHistoryItems { get; set; }
+
+        public static string DatabasePath
+        {
+            get
+            {
+                return Path.Combine(
+                    AppDomain.CurrentDomain.BaseDirectory,
+                    "radioapp.db"
+                );
+            }
+        }
 
         public RadioDbContext()
             : base("name=RadioDbContext")
@@ -18,7 +31,7 @@ namespace RadioApp.Data
         protected override void OnModelCreating(DbModelBuilder modelBuilder)
         {
             modelBuilder.Entity<MediaItem>()
-                        .ToTable("MediaItems");
+                .ToTable("MediaItems");
 
             modelBuilder.Entity<MediaItem>()
                 .HasKey(x => x.Id);
@@ -46,7 +59,7 @@ namespace RadioApp.Data
                 .HasMaxLength(100);
 
             modelBuilder.Entity<PlayHistoryItem>()
-                        .ToTable("PlayHistoryItems");
+                .ToTable("PlayHistoryItems");
 
             modelBuilder.Entity<PlayHistoryItem>()
                 .HasKey(x => x.Id);
@@ -56,10 +69,10 @@ namespace RadioApp.Data
                 .HasMaxLength(500);
 
             modelBuilder.Entity<PlayHistoryItem>()
-                        .HasRequired(x => x.MediaItem)
-                        .WithMany(x => x.PlayHistoryItems)
-                        .HasForeignKey(x => x.MediaItemId)
-                        .WillCascadeOnDelete(true);
+                .HasRequired(x => x.MediaItem)
+                .WithMany(x => x.PlayHistoryItems)
+                .HasForeignKey(x => x.MediaItemId)
+                .WillCascadeOnDelete(true);
 
             base.OnModelCreating(modelBuilder);
         }

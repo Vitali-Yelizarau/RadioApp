@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:RadioApp"
         mc:Ignorable="d"
-        Title="MainWindow" Height="321" Width="472">
+        Title="MainWindow" Height="286" Width="351" MinWidth="350" MinHeight="310">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
@@ -43,9 +43,22 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
-                    <Button Content="⏮" Grid.ColumnSpan="2" Margin="47,0,0,0" Grid.Row="1"/>
-                    <Button Content="▶" x:Name="PlayPauseButton" Grid.ColumnSpan="3" Margin="47,0,47,0" Grid.Row="1" Grid.Column="1"/>
-                    <Button Content="⏭" Grid.ColumnSpan="2" Margin="0,0,47,0" Grid.Row="1" Grid.Column="3"/>
+                    <Button Content="⏮" 
+                            Grid.Column="1" 
+                            Grid.Row="1"
+                            HorizontalContentAlignment="Center"
+                            VerticalContentAlignment="Center"/>
+                    <Button Content="▶" 
+                            x:Name="PlayPauseButton" 
+                            Grid.Column="2" 
+                            Grid.Row="1" 
+                            HorizontalContentAlignment="Center"
+                            VerticalContentAlignment="Center"/>
+                    <Button Content="⏭" 
+                            Grid.Row="1" 
+                            Grid.Column="3"
+                            HorizontalContentAlignment="Center"
+                            VerticalContentAlignment="Center"/>
                 </Grid>
                 <TextBlock TextWrapping="Wrap"  
                            TextAlignment="Center" 
@@ -54,7 +67,42 @@
                            Text="Now playing: "/>
             </Grid>
         </Grid>
-        <ListBox Grid.Column="1" x:Name="StationsListBox">
-        </ListBox>
-    </Grid>
+        <Grid Grid.Column="1" x:Name="StationsListAndButtonsGrid">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="45"/>
+            </Grid.RowDefinitions>
+            <ListBox Grid.Row="0" x:Name="StationsListBox">
+            </ListBox>
+            <Grid Grid.Row="1" x:Name="PlaylistButtonGrid">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Button x:Name="AddButton"
+                        Content="+"
+                        FontSize="28"
+                        FontWeight="Bold"
+                        HorizontalContentAlignment="Center"
+                        VerticalContentAlignment="Center"/>
+                <Button Grid.Column="1" x:Name="DeleteButton"
+                        Content="-"
+                        FontSize="32"
+                        FontWeight="Bold"
+                        HorizontalContentAlignment="Center"
+                        VerticalContentAlignment="Center"
+                        ToolTip="Delete station"/>
+                <Button x:Name="EditButton"
+                        Grid.Column="2" 
+                        FontFamily="Segoe MDL2 Assets"
+                        Content="&#xE70F;"
+                        FontSize="15"
+                        HorizontalContentAlignment="Center"
+                        VerticalContentAlignment="Center"
+                        ToolTip="Edit station"/>
+            </Grid>
+                
+            </Grid>
+        </Grid>
 </Window>

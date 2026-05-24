@@ -1,7 +1,9 @@
 ﻿using RadioApp.Models;
 using RadioApp.Services;
+using Serilog;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -39,25 +41,44 @@ namespace RadioApp
 
         private async Task MainWindow_LoadedAsync(object sender, RoutedEventArgs e)
         {
-            await _databaseService.InitializeDatabaseAsync();
+            Log.Information("MainWindow_Loaded started.");
 
-            //MessageBox.Show("Database initialized.");
-
-            _playlist = await _databaseService.GetEnabledMediaItems();
-
-            StationsListBox.ItemsSource = _playlist;
-            StationsListBox.DisplayMemberPath = "Title";
-
-            if (_playlist.Count > 0)
+            try
             {
-                _currentIndex = 0;
-                StationsListBox.SelectedIndex = 0;
+                IsEnabled = false;
 
-                // NowPlayingTextBlock.Text = "Selected: " + _playlist[0].Title;
+                var playlist = await _databaseService.InitializeDatabaseAndGetEnabledMediaItemsAsync();
+
+                _playlist = playlist;
+
+                StationsListBox.ItemsSource = _playlist;
+                StationsListBox.DisplayMemberPath = "Title";
+
+                if (_playlist.Count > 0)
+                {
+                    _currentIndex = 0;
+                    StationsListBox.SelectedIndex = 0;
+                }
+                else
+                {
+                    _currentIndex = -1;
+                    Log.Information("Playlist is empty.");
+                }
             }
-            else
+            catch (Exception ex)
             {
-                // NowPlayingTextBlock.Text = "Playlist is empty.";
+                Log.Error(ex, "Error during MainWindow_Loaded");
+
+                MessageBox.Show(
+                    "Error starting the application. Details are logged.",
+                    "Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error
+                );
+            }
+            finally
+            {
+                IsEnabled = true;
             }
         }
     }
