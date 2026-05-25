@@ -1,0 +1,501 @@
+﻿using RadioApp.Models;
+using RadioApp.Services;
+using Serilog;
+using System;
+using System.Threading.Tasks;
+using System.Windows;
+
+namespace RadioApp
+{
+    public partial class AddStationWindow : Window
+    {
+        const int MIN_TIMEOUT = 3;
+        const int MAX_TIMEOUT = 300;
+
+        private readonly RadioStreamDiscoveryService _discoveryService;
+        private readonly RadioStreamInfoService _streamInfoService;
+
+        private readonly StationWindowMode _mode;
+        private readonly MediaItem _editingItem;
+
+        public DiscoveredRadioStream DiscoveredStream { get; private set; }
+        public string UserTitle
+        {
+            get { return TitleTextBox.Text.Trim(); }
+        }
+        public string PageUrl
+        {
+            get { return PageUrlTextBox.Text.Trim(); }
+        }
+
+        public string StreamUrl
+        {
+            get { return StreamUrlTextBox.Text.Trim(); }
+        }
+
+        public string UserDescription
+        {
+            get { return DescriptionTextBox.Text.Trim(); }
+        }
+
+        private int TimeoutSeconds
+        {
+            get
+            {
+                if (!int.TryParse(TimeoutTextBox.Text.Trim(), out int seconds))
+                {
+                    throw new InvalidOperationException("Timeout must be a number.");
+                }
+
+                if (seconds < MIN_TIMEOUT)
+                {
+                    throw new InvalidOperationException("Timeout must be at least 3 seconds.");
+                }
+
+                if (seconds > MAX_TIMEOUT)
+                {
+                    throw new InvalidOperationException("Timeout must not be greater than 120 seconds.");
+                }
+
+                return seconds;
+            }
+        }
+
+        public MediaItem UpdatedItem
+        {
+            get
+            {
+                if (_editingItem == null)
+                {
+                    return null;
+                }
+
+                return new MediaItem
+                {
+                    Id = _editingItem.Id,
+                    Title = UserTitle,
+                    Description = UserDescription,
+                    SourceType = _editingItem.SourceType,
+                    WebsiteUrl = _editingItem.WebsiteUrl,
+                    StreamUrl = StreamUrl,
+                    Genre = _editingItem.Genre,
+                    SortOrder = _editingItem.SortOrder,
+                    IsEnabled = _editingItem.IsEnabled
+                };
+            }
+        }
+
+        public AddStationWindow()
+        {
+            InitializeComponent();
+
+            _mode = StationWindowMode.Add;
+
+            _discoveryService = new RadioStreamDiscoveryService();
+            _streamInfoService = new RadioStreamInfoService();
+
+            DiscoveredStream = new DiscoveredRadioStream();
+
+            ConfigureAddMode();
+        }
+
+        public AddStationWindow(MediaItem item)
+        {
+            InitializeComponent();
+            _mode = StationWindowMode.Edit;
+            _editingItem = item ?? throw new ArgumentNullException(nameof(item));
+
+            _discoveryService = new RadioStreamDiscoveryService();
+            _streamInfoService = new RadioStreamInfoService();
+
+            DiscoveredStream = new DiscoveredRadioStream
+            {
+                PageUrl = item.WebsiteUrl ?? string.Empty,
+                StreamUrl = item.StreamUrl ?? string.Empty,
+                StationName = item.Title ?? string.Empty,
+                Description = item.Description ?? string.Empty,
+                Genre = item.Genre ?? string.Empty
+            };
+
+            ConfigureEditMode(item);
+        }
+
+        private void ConfigureAddMode()
+        {
+            Title = "Add radio station";
+
+            PageUrlTextBox.IsEnabled = true;
+            StreamUrlTextBox.IsEnabled = true;
+            TimeoutTextBox.IsEnabled = true;
+            DescriptionTextBox.IsEnabled = true;
+            TitleTextBox.IsEnabled = true;
+
+            FindStreamUrlButton.Visibility = Visibility.Visible;
+            AddButton.Content = "Add";
+        }
+
+        private void ConfigureEditMode(MediaItem item)
+        {
+            Title = "Update radio station";
+
+            PageUrlTextBox.Text = item.WebsiteUrl ?? string.Empty;
+            StreamUrlTextBox.Text = item.StreamUrl ?? string.Empty;
+            DescriptionTextBox.Text = item.Description ?? string.Empty;
+            
+            TitleTextBox.Text = item.Title ?? string.Empty;
+            TitleTextBox.IsEnabled = true;
+
+            TimeoutTextBox.Text = "0";
+            TimeoutTextBox.IsEnabled = false;
+
+            PageUrlTextBox.IsEnabled = false;
+            StreamUrlTextBox.IsEnabled = true;
+            DescriptionTextBox.IsEnabled = true;
+
+            FindStreamUrlButton.Visibility = Visibility.Collapsed;
+            AddButton.Content = "Update";
+        }
+
+        private async void FindStreamUrlButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                SetBusyState(true, "Checking...");
+
+                DiscoveredStream = await RunWithTimeoutAsync(
+                    PrepareStationForAddAsync(),
+                    TimeoutSeconds
+                );
+
+                MessageBox.Show(
+                    "Stream URL was found/checked successfully.",
+                    "Success",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information
+                );
+            }
+            catch (TimeoutException ex)
+            {
+                Log.Warning(
+                    ex,
+                    "Stream detection timed out. PageUrl: {PageUrl}, StreamUrl: {StreamUrl}, TimeoutSeconds: {TimeoutSeconds}",
+                    PageUrl,
+                    StreamUrl,
+                    SafeGetTimeoutSeconds()
+                );
+
+                MessageBox.Show(
+                    ex.Message,
+                    "Stream detection timed out",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning
+                );
+            }
+            catch (Exception ex)
+            {
+                Log.Error(
+                    ex,
+                    "Find/check stream failed. PageUrl: {PageUrl}, StreamUrl: {StreamUrl}",
+                    PageUrl,
+                    StreamUrl
+                );
+
+                MessageBox.Show(
+                    ex.Message,
+                    "Stream check failed",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning
+                );
+            }
+            finally
+            {
+                SetBusyState(false, null);
+            }
+        }
+
+        private async void AddButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_mode == StationWindowMode.Add)
+                {
+                    SetBusyState(true, "Adding...");
+
+                    DiscoveredStream = await RunWithTimeoutAsync(
+                        PrepareStationForAddAsync(),
+                        TimeoutSeconds
+                    );
+
+                    DialogResult = true;
+                    Close();
+                }
+                else
+                {
+                    SetBusyState(true, "Updating...");
+
+                    PrepareStationForUpdate();
+
+                    DialogResult = true;
+                    Close();
+                }
+            }
+            catch (TimeoutException ex)
+            {
+                Log.Warning(
+                    ex,
+                    "Station action timed out. Mode: {Mode}, PageUrl: {PageUrl}, StreamUrl: {StreamUrl}, TimeoutSeconds: {TimeoutSeconds}",
+                    _mode,
+                    PageUrl,
+                    StreamUrl,
+                    SafeGetTimeoutSeconds()
+                );
+
+                MessageBox.Show(
+                    ex.Message,
+                    "Operation timed out",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning
+                );
+            }
+            catch (Exception ex)
+            {
+                Log.Error(
+                    ex,
+                    "Station window action failed. Mode: {Mode}, PageUrl: {PageUrl}, StreamUrl: {StreamUrl}",
+                    _mode,
+                    PageUrl,
+                    StreamUrl
+                );
+
+                MessageBox.Show(
+                    ex.Message,
+                    _mode == StationWindowMode.Add ? "Add station failed" : "Update station failed",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error
+                );
+            }
+            finally
+            {
+                SetBusyState(false, null);
+            }
+        }
+
+        private async Task<T> RunWithTimeoutAsync<T>(Task<T> task, int timeoutSeconds)
+        {
+            Task timeoutTask = Task.Delay(TimeSpan.FromSeconds(timeoutSeconds));
+
+            Task completedTask = await Task.WhenAny(task, timeoutTask);
+
+            if (completedTask == timeoutTask)
+            {
+                throw new TimeoutException(
+                    "Stream detection took too long. Try increasing the timeout value or paste the Stream URL manually."
+                );
+            }
+
+            return await task;
+        }
+
+        private async Task<DiscoveredRadioStream> PrepareStationForAddAsync()
+        {
+            string pageUrl = PageUrlTextBox.Text.Trim();
+            string streamUrl = StreamUrlTextBox.Text.Trim();
+
+            ValidatePageUrl(pageUrl);
+
+            DiscoveredRadioStream result;
+
+            if (string.IsNullOrWhiteSpace(streamUrl))
+            {
+                result = await DetectStreamFromPageAsync(pageUrl);
+            }
+            else
+            {
+                result = await ValidateDirectStreamAsync(pageUrl, streamUrl);
+            }
+
+            ApplyResultToForm(result);
+
+            return result;
+        }
+
+        private void PrepareStationForUpdate()
+        {
+            string streamUrl = StreamUrlTextBox.Text.Trim();
+
+            if (string.IsNullOrWhiteSpace(streamUrl))
+            {
+                throw new InvalidOperationException("Stream URL is required.");
+            }
+
+            // Для Update по текущей логике не проверяем, играет ли поток.
+            // Пользователь может вручную изменить Stream URL и Description.
+
+            DiscoveredStream = new DiscoveredRadioStream
+            {
+                PageUrl = PageUrl,
+                StreamUrl = streamUrl,
+                StationName = _editingItem.Title,
+                Description = UserDescription,
+                Genre = _editingItem.Genre
+            };
+        }
+
+        private async Task<DiscoveredRadioStream> DetectStreamFromPageAsync(string pageUrl)
+        {
+            Log.Information("Stream URL is empty. Trying to detect stream from page URL: {PageUrl}", pageUrl);
+
+            DiscoveredRadioStream result = await _discoveryService.DiscoverAsync(pageUrl);
+
+            if (result == null || string.IsNullOrWhiteSpace(result.StreamUrl))
+            {
+                throw new InvalidOperationException("Stream URL could not be detected from this page.");
+            }
+
+            ApplyResultToForm(result);
+
+            Log.Information(
+                "Stream detected from page. PageUrl: {PageUrl}, StreamUrl: {StreamUrl}, StationName: {StationName}",
+                result.PageUrl,
+                result.StreamUrl,
+                result.StationName
+            );
+
+            return result;
+        }
+
+        private async Task<DiscoveredRadioStream> ValidateDirectStreamAsync(string pageUrl, string streamUrl)
+        {
+            ValidateStreamUrl(streamUrl);
+
+            Log.Information(
+                "Stream URL was entered manually. Checking stream: {StreamUrl}",
+                streamUrl
+            );
+
+            bool isAudio = await _streamInfoService.IsAudioStreamAsync(streamUrl);
+
+            if (!isAudio)
+            {
+                throw new InvalidOperationException("The entered Stream URL does not look like a playable audio stream.");
+            }
+
+            DiscoveredRadioStream result = await _streamInfoService.ReadStreamInfoAsync(pageUrl, streamUrl);
+
+            Log.Information(
+                "Manual stream URL checked. PageUrl: {PageUrl}, StreamUrl: {StreamUrl}, StationName: {StationName}",
+                result.PageUrl,
+                result.StreamUrl,
+                result.StationName
+            );
+
+            return result;
+        }
+
+        private void ApplyResultToForm(DiscoveredRadioStream result)
+        {
+            if (!string.IsNullOrWhiteSpace(result.StreamUrl))
+            {
+                StreamUrlTextBox.Text = result.StreamUrl;
+            }
+
+            if (string.IsNullOrWhiteSpace(TitleTextBox.Text) &&
+                !string.IsNullOrWhiteSpace(result.StationName))
+            {
+                TitleTextBox.Text = result.StationName;
+            }
+
+            if (string.IsNullOrWhiteSpace(DescriptionTextBox.Text))
+            {
+                if (!string.IsNullOrWhiteSpace(result.Description))
+                {
+                    DescriptionTextBox.Text = result.Description;
+                }
+                else if (!string.IsNullOrWhiteSpace(result.StationName))
+                {
+                    DescriptionTextBox.Text = result.StationName;
+                }
+            }
+        }
+
+        private void ValidatePageUrl(string pageUrl)
+        {
+            if (string.IsNullOrWhiteSpace(pageUrl))
+            {
+                throw new InvalidOperationException("Radio page URL is required.");
+            }
+
+            if (!Uri.IsWellFormedUriString(pageUrl, UriKind.Absolute))
+            {
+                throw new InvalidOperationException("Radio page URL must be a valid absolute URL.");
+            }
+        }
+
+        private void ValidateStreamUrl(string streamUrl)
+        {
+            if (string.IsNullOrWhiteSpace(streamUrl))
+            {
+                throw new InvalidOperationException("Stream URL is empty.");
+            }
+
+            if (!Uri.IsWellFormedUriString(streamUrl, UriKind.Absolute))
+            {
+                throw new InvalidOperationException("Stream URL must be a valid absolute URL.");
+            }
+        }
+
+        private int SafeGetTimeoutSeconds()
+        {
+            int seconds;
+
+            if (int.TryParse(TimeoutTextBox.Text.Trim(), out seconds))
+            {
+                return seconds;
+            }
+
+            return -1;
+        }
+
+        private void CancelButton_Click(object sender, RoutedEventArgs e)
+        {
+            DialogResult = false;
+            Close();
+        }
+
+        private void SetBusyState(bool isBusy, string activeButtonText)
+        {
+            bool isEditMode = _mode == StationWindowMode.Edit;
+
+            PageUrlTextBox.IsEnabled = !isBusy && !isEditMode;
+            StreamUrlTextBox.IsEnabled = !isBusy;
+            TimeoutTextBox.IsEnabled = !isBusy && !isEditMode;
+            DescriptionTextBox.IsEnabled = !isBusy;
+
+            FindStreamUrlButton.IsEnabled = !isBusy;
+            CancelButton.IsEnabled = !isBusy;
+            AddButton.IsEnabled = !isBusy; 
+            TitleTextBox.IsEnabled = !isBusy;
+
+            if (isBusy)
+            {
+                if (activeButtonText == "Checking...")
+                {
+                    FindStreamUrlButton.Content = "Checking...";
+                }
+                else if (activeButtonText == "Adding...")
+                {
+                    AddButton.Content = "Adding...";
+                }
+                else if (activeButtonText == "Updating...")
+                {
+                    AddButton.Content = "Updating...";
+                }
+            }
+            else
+            {
+                FindStreamUrlButton.Content = "Find stream URL";
+                AddButton.Content = isEditMode ? "Update" : "Add";
+            }
+        }
+    }
+}

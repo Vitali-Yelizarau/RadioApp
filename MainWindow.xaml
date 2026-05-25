@@ -19,9 +19,6 @@
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
             <Grid >
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*"/>
@@ -70,29 +67,51 @@
         <Grid Grid.Column="1" x:Name="StationsListAndButtonsGrid">
             <Grid.RowDefinitions>
                 <RowDefinition Height="*"/>
-                <RowDefinition Height="45"/>
+                <RowDefinition Height="30"/>
             </Grid.RowDefinitions>
-            <ListBox Grid.Row="0" x:Name="StationsListBox">
+            <ListBox x:Name="StationsListBox"
+                     Grid.Row="0"
+                     Grid.Column="1">
+
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Title}"
+                                   TextTrimming="CharacterEllipsis">
+                                <TextBlock.ToolTip>
+                                    <ToolTip>
+                                        <TextBlock Text="{Binding Description}"
+                                       TextWrapping="Wrap"
+                                       MaxWidth="300"/>
+                                    </ToolTip>
+                                </TextBlock.ToolTip>
+                            </TextBlock>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+
             </ListBox>
+            
             <Grid Grid.Row="1" x:Name="PlaylistButtonGrid">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
-                <Button FontFamily="Segoe MDL2 Assets"
+                
+                <Button x:Name="AddButton" FontFamily="Segoe MDL2 Assets"
                         Content="&#xE710;"
                         FontSize="22"
                         ToolTip="Add station"
                         HorizontalContentAlignment="Center"
-                        VerticalContentAlignment="Center"/>
-                <Button Grid.Column="1" 
+                        VerticalContentAlignment="Center" Click="AddButton_Click"/>
+
+                <Button Grid.Column="1" x:Name="DeleteButton"
                         FontFamily="Segoe MDL2 Assets"
                         Content="&#xE738;"
                         FontSize="22"
                         HorizontalContentAlignment="Center"
                         VerticalContentAlignment="Center"
-                        ToolTip="Delete station"/>
+                        ToolTip="Delete station" Click="DeleteButton_ClickAsync"/>
+                
                 <Button x:Name="EditButton"
                         Grid.Column="2" 
                         FontFamily="Segoe MDL2 Assets"
@@ -100,7 +119,7 @@
                         FontSize="20"
                         HorizontalContentAlignment="Center"
                         VerticalContentAlignment="Center"
-                        ToolTip="Edit station"/>
+                        ToolTip="Edit station" Click="EditButton_Click"/>
             </Grid>
                 
             </Grid>

@@ -1,12 +1,8 @@
 ﻿using RadioApp.Data;
 using RadioApp.Models;
-using Serilog;
-using System;
 using System.Collections.Generic;
-using System.Configuration;
 using System.Data.Entity;
 using System.Data.SQLite;
-using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -69,17 +65,6 @@ namespace RadioApp.Services
             }
         }
 
-        public List<MediaItem> GetRadioStations()
-        {
-            using (var db = new RadioDbContext())
-            {
-                return db.MediaItems
-                         .Where(x => x.IsEnabled && x.SourceType == MediaSourceType.Radio)
-                         .OrderBy(x => x.SortOrder)
-                         .ThenBy(x => x.Title)
-                         .ToList();
-            }
-        }
 
         public async Task AddPlayHistoryAsync(int mediaItemId, string trackName)
         {
@@ -123,6 +108,110 @@ namespace RadioApp.Services
                              .ToList();
                 }
             });
+        }
+
+        public void AddMediaItem(MediaItem item)
+        {
+            using (var db = new RadioDbContext())
+            {
+                db.MediaItems.Add(item);
+                db.SaveChanges();
+            }
+        }
+
+
+        public void UpdateRadioStation(MediaItem updatedItem)
+        {
+            using (var db = new RadioDbContext())
+            {
+                var item = db.MediaItems.FirstOrDefault(x => x.Id == updatedItem.Id);
+
+                if (item == null)
+                {
+                    throw new System.InvalidOperationException("Station was not found in database.");
+                }
+
+                item.Title = updatedItem.Title ?? string.Empty;
+                item.Description = updatedItem.Description ?? string.Empty;
+                item.StreamUrl = updatedItem.StreamUrl ?? string.Empty;
+
+                db.SaveChanges();
+            }
+        }
+
+        private string NormalizeStreamUrl(string streamUrl)
+        {
+            if (string.IsNullOrWhiteSpace(streamUrl))
+            {
+                return string.Empty;
+            }
+
+            return streamUrl
+                .Trim()
+                .TrimEnd('/')
+                .ToLowerInvariant();
+        }
+
+        public MediaItem AddOrUpdateRadioStation(
+            string title,
+            string description,
+            string pageUrl,
+            string streamUrl,
+            string genre)
+        {
+            using (var db = new RadioDbContext())
+            {
+                string normalizedNewStreamUrl = NormalizeStreamUrl(streamUrl);
+
+                var existingItems = db.MediaItems
+                    .Where(x => x.SourceType == MediaSourceType.Radio)
+                    .ToList();
+
+                var existingItem = existingItems.FirstOrDefault(x =>
+                    NormalizeStreamUrl(x.StreamUrl) == normalizedNewStreamUrl
+                );
+
+                if (existingItem != null)
+                {
+                    existingItem.Title = string.IsNullOrWhiteSpace(title)
+                        ? existingItem.Title
+                        : title;
+
+                    existingItem.Description = description ?? string.Empty;
+                    existingItem.WebsiteUrl = pageUrl ?? string.Empty;
+                    existingItem.StreamUrl = streamUrl ?? string.Empty;
+                    existingItem.Genre = genre ?? string.Empty;
+                    existingItem.IsEnabled = true;
+
+                    db.SaveChanges();
+
+                    return existingItem;
+                }
+
+                int nextSortOrder = 1;
+
+                if (db.MediaItems.Any())
+                {
+                    nextSortOrder = db.MediaItems.Max(x => x.SortOrder) + 1;
+                }
+
+                var newItem = new MediaItem
+                {
+                    Title = title ?? string.Empty,
+                    Description = description ?? string.Empty,
+                    SourceType = MediaSourceType.Radio,
+                    WebsiteUrl = pageUrl ?? string.Empty,
+                    StreamUrl = streamUrl ?? string.Empty,
+                    Genre = genre ?? string.Empty,
+                    SortOrder = nextSortOrder,
+                    IsEnabled = true
+                };
+
+                db.MediaItems.Add(newItem);
+                db.SaveChanges();
+
+                return newItem;
+            }
         }
     }
 }
