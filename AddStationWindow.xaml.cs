@@ -221,6 +221,13 @@ namespace RadioApp
                 {
                     SetBusyState(true, "Adding...");
 
+                    if (CanUseAlreadyDiscoveredStream())
+                    {
+                        DialogResult = true;
+                        Close();
+                        return;
+                    }
+
                     DiscoveredStream = await RunWithTimeoutAsync(
                         PrepareStationForAddAsync(),
                         TimeoutSeconds
@@ -496,6 +503,65 @@ namespace RadioApp
                 FindStreamUrlButton.Content = "Find stream URL";
                 AddButton.Content = isEditMode ? "Update" : "Add";
             }
+        }
+
+        private bool CanUseAlreadyDiscoveredStream()
+        {
+            if (DiscoveredStream == null)
+            {
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(DiscoveredStream.StreamUrl))
+            {
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(StreamUrl))
+            {
+                return false;
+            }
+
+            string discoveredStreamUrl = NormalizeUrlForComparison(DiscoveredStream.StreamUrl);
+            string currentStreamUrl = NormalizeUrlForComparison(StreamUrl);
+
+            if (!string.Equals(discoveredStreamUrl, currentStreamUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(PageUrl) &&
+                !string.IsNullOrWhiteSpace(DiscoveredStream.PageUrl))
+            {
+                string discoveredPageUrl = NormalizeUrlForComparison(DiscoveredStream.PageUrl);
+                string currentPageUrl = NormalizeUrlForComparison(PageUrl);
+
+                if (!string.Equals(discoveredPageUrl, currentPageUrl, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+
+            Log.Information(
+                "Using already discovered stream without second validation. PageUrl: {PageUrl}, StreamUrl: {StreamUrl}",
+                PageUrl,
+                StreamUrl
+            );
+
+            return true;
+        }
+
+        private string NormalizeUrlForComparison(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                return string.Empty;
+            }
+
+            return url
+                .Trim()
+                .TrimEnd('/')
+                .ToLowerInvariant();
         }
     }
 }
