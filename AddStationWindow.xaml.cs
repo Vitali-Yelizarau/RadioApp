@@ -141,7 +141,7 @@ namespace RadioApp
             PageUrlTextBox.Text = item.WebsiteUrl ?? string.Empty;
             StreamUrlTextBox.Text = item.StreamUrl ?? string.Empty;
             DescriptionTextBox.Text = item.Description ?? string.Empty;
-            
+
             TitleTextBox.Text = item.Title ?? string.Empty;
             TitleTextBox.IsEnabled = true;
 
@@ -480,7 +480,7 @@ namespace RadioApp
 
             FindStreamUrlButton.IsEnabled = !isBusy;
             CancelButton.IsEnabled = !isBusy;
-            AddButton.IsEnabled = !isBusy; 
+            AddButton.IsEnabled = !isBusy;
             TitleTextBox.IsEnabled = !isBusy;
 
             if (isBusy)
