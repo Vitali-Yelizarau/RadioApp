@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Input;
 
 namespace RadioApp
 {
@@ -237,7 +238,7 @@ namespace RadioApp
             }
         }
 
-        private async void StationsListBox_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        private async void StationsListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
             MediaItem selected = SelectedStation;
 
@@ -246,7 +247,10 @@ namespace RadioApp
                 return;
             }
 
-            await PlayStationAsync(selected);
+            await RunPlaybackOperationAsync(async () =>
+            {
+                await PlayStationAsync(selected);
+            });
         }
 
         private async void PlayPauseButton_Click(object sender, RoutedEventArgs e)
@@ -275,7 +279,10 @@ namespace RadioApp
                 }
             }
 
-            await PlayStationAsync(selected);
+            await RunPlaybackOperationAsync(async () =>
+            {
+                await PlayStationAsync(selected);
+            });
         }
 
         private void PlaybackService_PlaybackStarted(object sender, EventArgs e)
@@ -351,6 +358,40 @@ namespace RadioApp
             base.OnClosed(e);
         }
 
+        private void SetPlaybackOperationUiBusy(bool isBusy)
+        {
+            _isChangingStation = isBusy;
+
+            PlayPauseButton.IsEnabled = !isBusy;
+            NextItemButton.IsEnabled = !isBusy;
+            PreviousItemButton.IsEnabled = !isBusy;
+            AddButton.IsEnabled = !isBusy;
+            EditButton.IsEnabled = !isBusy;
+            DeleteButton.IsEnabled = !isBusy;
+            StationsListBox.IsEnabled = !isBusy;
+
+            Mouse.OverrideCursor = isBusy ? Cursors.Wait : null;
+        }
+
+        private async Task RunPlaybackOperationAsync(Func<Task> operation)
+        {
+            if (_isChangingStation)
+            {
+                return;
+            }
+
+            try
+            {
+                SetPlaybackOperationUiBusy(true);
+
+                await operation();
+            }
+            finally
+            {
+                SetPlaybackOperationUiBusy(false);
+            }
+        }
+
         private async Task PlayStationAsync(MediaItem station)
         {
             if (station == null)
@@ -372,8 +413,6 @@ namespace RadioApp
 
             try
             {
-                _isChangingStation = true;
-
                 Log.Information(
                     "Starting playback. StationId: {StationId}, Title: {Title}, StreamUrl: {StreamUrl}",
                     station.Id,
@@ -411,10 +450,6 @@ namespace RadioApp
                     MessageBoxButton.OK,
                     MessageBoxImage.Error
                 );
-            }
-            finally
-            {
-                _isChangingStation = false;
             }
         }
 

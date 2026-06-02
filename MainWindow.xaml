@@ -41,6 +41,7 @@
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
                     <Button Content="⏮" 
+                            x:Name="PreviousItemButton"
                             Grid.Column="1" 
                             Grid.Row="1"
                             HorizontalContentAlignment="Center"
@@ -53,6 +54,7 @@
                             HorizontalContentAlignment="Center"
                             VerticalContentAlignment="Center"/>
                     <Button Content="⏭" 
+                            x:Name="NextItemButton"
                             Grid.Row="1" 
                             Grid.Column="3"
                             HorizontalContentAlignment="Center"
