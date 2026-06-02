@@ -2,6 +2,8 @@
 using RadioApp.Services;
 using Serilog;
 using System;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 
@@ -17,6 +19,18 @@ namespace RadioApp
 
         private readonly StationWindowMode _mode;
         private readonly MediaItem _editingItem;
+
+        private string Description
+        {
+            get
+            {
+                return DescriptionTextBox.Text.Trim();
+            }
+            set
+            {
+                DescriptionTextBox.Text = value ?? string.Empty;
+            }
+        }
 
         public DiscoveredRadioStream DiscoveredStream { get; private set; }
         public string UserTitle
@@ -162,17 +176,23 @@ namespace RadioApp
             {
                 SetBusyState(true, "Checking...");
 
-                DiscoveredStream = await RunWithTimeoutAsync(
-                    PrepareStationForAddAsync(),
-                    TimeoutSeconds
-                );
+                if (!string.IsNullOrWhiteSpace(StreamUrl))
+                {
+                    DiscoveredStream = PrepareStationFromDirectStreamUrl();
+                    return;
+                }
 
-                MessageBox.Show(
-                    "Stream URL was found/checked successfully.",
-                    "Success",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information
-                );
+                if (string.IsNullOrWhiteSpace(PageUrl))
+                {
+                    throw new InvalidOperationException(
+                        "Please enter Radio page URL or direct Stream URL."
+                    );
+                }
+
+                DiscoveredStream = await RunWithTimeoutAsync(
+                                                token => DetectStreamFromPageAsync(PageUrl, token),
+                                                TimeoutSeconds
+                                            );
             }
             catch (TimeoutException ex)
             {
@@ -186,7 +206,7 @@ namespace RadioApp
 
                 MessageBox.Show(
                     ex.Message,
-                    "Stream detection timed out",
+                    "Operation timed out",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning
                 );
@@ -195,7 +215,7 @@ namespace RadioApp
             {
                 Log.Error(
                     ex,
-                    "Find/check stream failed. PageUrl: {PageUrl}, StreamUrl: {StreamUrl}",
+                    "Stream detection failed. PageUrl: {PageUrl}, StreamUrl: {StreamUrl}",
                     PageUrl,
                     StreamUrl
                 );
@@ -229,9 +249,9 @@ namespace RadioApp
                     }
 
                     DiscoveredStream = await RunWithTimeoutAsync(
-                        PrepareStationForAddAsync(),
-                        TimeoutSeconds
-                    );
+                                            token => PrepareStationForAddAsync(token),
+                                            TimeoutSeconds
+                                        );
 
                     DialogResult = true;
                     Close();
@@ -287,43 +307,138 @@ namespace RadioApp
             }
         }
 
-        private async Task<T> RunWithTimeoutAsync<T>(Task<T> task, int timeoutSeconds)
+        private async Task<T> RunWithTimeoutAsync<T>(Func<CancellationToken, Task<T>> operationFactory, int timeoutSeconds)
         {
-            Task timeoutTask = Task.Delay(TimeSpan.FromSeconds(timeoutSeconds));
-
-            Task completedTask = await Task.WhenAny(task, timeoutTask);
-
-            if (completedTask == timeoutTask)
+            using (var cancellationTokenSource = new CancellationTokenSource())
             {
-                throw new TimeoutException(
-                    "Stream detection took too long. Try increasing the timeout value or paste the Stream URL manually."
+                Task<T> operationTask = operationFactory(cancellationTokenSource.Token);
+                Task timeoutTask = Task.Delay(TimeSpan.FromSeconds(timeoutSeconds));
+
+                Task completedTask = await Task.WhenAny(operationTask, timeoutTask);
+
+                if (completedTask == timeoutTask)
+                {
+                    cancellationTokenSource.Cancel();
+
+                    throw new TimeoutException(
+                        "The operation timed out and was cancelled."
+                    );
+                }
+
+                return await operationTask;
+            }
+        }
+
+        private async Task<DiscoveredRadioStream> PrepareStationForAddAsync(CancellationToken cancellationToken)
+        {
+            bool hasPageUrl = !string.IsNullOrWhiteSpace(PageUrl);
+            bool hasStreamUrl = !string.IsNullOrWhiteSpace(StreamUrl);
+
+            if (!hasPageUrl && !hasStreamUrl)
+            {
+                throw new InvalidOperationException(
+                    "Please enter either Radio page URL or Stream URL."
                 );
             }
 
-            return await task;
+            if (hasStreamUrl)
+            {
+                return PrepareStationFromDirectStreamUrl();
+            }
+
+            return await DetectStreamFromPageAsync(PageUrl, cancellationToken);
         }
 
-        private async Task<DiscoveredRadioStream> PrepareStationForAddAsync()
+        private DiscoveredRadioStream PrepareStationFromDirectStreamUrl()
         {
-            string pageUrl = PageUrlTextBox.Text.Trim();
-            string streamUrl = StreamUrlTextBox.Text.Trim();
+            string streamUrl = StreamUrl.Trim();
 
-            ValidatePageUrl(pageUrl);
-
-            DiscoveredRadioStream result;
-
-            if (string.IsNullOrWhiteSpace(streamUrl))
+            if (!Uri.IsWellFormedUriString(streamUrl, UriKind.Absolute))
             {
-                result = await DetectStreamFromPageAsync(pageUrl);
+                throw new InvalidOperationException(
+                    "The entered Stream URL is not a valid absolute URL."
+                );
             }
-            else
+
+            string title = Title;
+
+            if (string.IsNullOrWhiteSpace(title))
             {
-                result = await ValidateDirectStreamAsync(pageUrl, streamUrl);
+                title = BuildTitleFromStreamUrl(streamUrl);
             }
+
+            string description = Description;
+
+            if (string.IsNullOrWhiteSpace(description))
+            {
+                description = "Added manually from direct Stream URL.";
+            }
+
+            var result = new DiscoveredRadioStream
+            {
+                PageUrl = string.IsNullOrWhiteSpace(PageUrl) ? string.Empty : PageUrl.Trim(),
+                StreamUrl = streamUrl,
+                StationName = title,
+                Description = description,
+                Genre = string.Empty,
+                Bitrate = null
+            };
 
             ApplyResultToForm(result);
 
+            Log.Information(
+                "Station prepared from direct Stream URL. PageUrl: {PageUrl}, StreamUrl: {StreamUrl}, StationName: {StationName}",
+                result.PageUrl,
+                result.StreamUrl,
+                result.StationName
+            );
+
             return result;
+        }
+
+        private string BuildTitleFromStreamUrl(string streamUrl)
+        {
+            if (string.IsNullOrWhiteSpace(streamUrl))
+            {
+                return "New radio station";
+            }
+
+            Uri uri;
+
+            if (!Uri.TryCreate(streamUrl, UriKind.Absolute, out uri))
+            {
+                return "New radio station";
+            }
+
+            string[] parts = uri.AbsolutePath
+                .Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+
+            string candidate = parts
+                .Reverse()
+                .FirstOrDefault(x =>
+                    !string.IsNullOrWhiteSpace(x) &&
+                    !x.Equals("stream", StringComparison.OrdinalIgnoreCase) &&
+                    !x.Equals("live", StringComparison.OrdinalIgnoreCase) &&
+                    !x.StartsWith("mp3", StringComparison.OrdinalIgnoreCase) &&
+                    !x.StartsWith("aac", StringComparison.OrdinalIgnoreCase)
+                );
+
+            if (string.IsNullOrWhiteSpace(candidate))
+            {
+                candidate = uri.Host;
+            }
+
+            candidate = candidate
+                .Replace("-", " ")
+                .Replace("_", " ")
+                .Trim();
+
+            if (string.IsNullOrWhiteSpace(candidate))
+            {
+                return "New radio station";
+            }
+
+            return System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(candidate);
         }
 
         private void PrepareStationForUpdate()
@@ -348,11 +463,11 @@ namespace RadioApp
             };
         }
 
-        private async Task<DiscoveredRadioStream> DetectStreamFromPageAsync(string pageUrl)
+        private async Task<DiscoveredRadioStream> DetectStreamFromPageAsync(string pageUrl, CancellationToken cancellationToken)
         {
             Log.Information("Stream URL is empty. Trying to detect stream from page URL: {PageUrl}", pageUrl);
 
-            DiscoveredRadioStream result = await _discoveryService.DiscoverAsync(pageUrl);
+            DiscoveredRadioStream result = await _discoveryService.DiscoverAsync(pageUrl, cancellationToken);
 
             if (result == null || string.IsNullOrWhiteSpace(result.StreamUrl))
             {

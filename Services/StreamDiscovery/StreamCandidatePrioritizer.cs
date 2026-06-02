@@ -49,9 +49,7 @@ namespace RadioApp.Services.StreamDiscovery
                 return result;
             }
 
-            Uri uri;
-
-            if (!Uri.TryCreate(url, UriKind.Absolute, out uri))
+            if (!Uri.TryCreate(url, UriKind.Absolute, out Uri uri))
             {
                 result.Score = -1000;
                 result.Reason = "Invalid absolute URL";
@@ -69,6 +67,35 @@ namespace RadioApp.Services.StreamDiscovery
                 result.Bitrate = bitrate;
                 result.Score += bitrate;
                 result.Reason += "bitrate-from-url;";
+            }
+
+            // Deutschland.fm / Antenne Bayern real stream hosts.
+            // ВАЖНО: dist=deutschlandfm сам по себе НЕ является признаком stream URL.
+            if (lower.Contains("mp3channels.webradio.") ||
+                host.Contains("webradio.antenne.de"))
+            {
+                result.Score += 800;
+                result.Reason += "deutschland-fm-webradio-stream;";
+            }
+
+            // Stable entry point is better than temporary redirected server like s4-webradio.
+            if (lower.Contains("mp3channels.webradio."))
+            {
+                result.Score += 250;
+                result.Reason += "deutschland-fm-stable-entrypoint;";
+            }
+
+            // Penalize fake relative candidates incorrectly normalized to deutschland.fm host.
+            if ((host.Equals("www.deutschland.fm", StringComparison.OrdinalIgnoreCase) ||
+                 host.Equals("deutschland.fm", StringComparison.OrdinalIgnoreCase)) &&
+                (path.Contains("mp3") ||
+                 path.Contains("stream") ||
+                 path.Contains("icecast") ||
+                 path.Contains("/listen") ||
+                 path.StartsWith("/radio/")))
+            {
+                result.Score -= 1000;
+                result.Reason += "deutschland-fm-fake-relative-stream;";
             }
 
             if (lower.Contains(".mp3") || path.Contains("/mp3-") || path.Contains("mp3-"))

@@ -79,7 +79,7 @@
                      Grid.Column="2"
                      Width="50"
                      Height="30"
-                     Text="20"
+                     Text="60"
                      VerticalContentAlignment="Center"/>
 
             <StackPanel Grid.Column="4"

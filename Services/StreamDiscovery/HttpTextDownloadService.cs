@@ -1,6 +1,7 @@
 ﻿using Serilog;
 using System;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace RadioApp.Services
@@ -23,17 +24,56 @@ namespace RadioApp.Services
             }
         }
 
-        public async Task<string> DownloadTextSafeAsync(string url)
+
+        public async Task<string> DownloadTextAsync(string url, CancellationToken cancellationToken)
+        {
+            using (var client = CreateHttpClient())
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+
+                using (var response = await client.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseContentRead,
+                    cancellationToken))
+                {
+                    response.EnsureSuccessStatusCode();
+
+                    return await response.Content.ReadAsStringAsync();
+                }
+            }
+        }
+
+        public async Task<string> DownloadTextSafeAsync(
+                                        string url,
+                                        CancellationToken cancellationToken)
         {
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 if (_filter.IsDefinitelyNotTextUrl(url))
                 {
                     Log.Debug("Skipping non-text URL: {Url}", url);
                     return string.Empty;
                 }
 
-                return await DownloadTextAsync(url);
+                return await DownloadTextAsync(url, cancellationToken);
+            }
+            catch (OperationCanceledException ex)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    Log.Information("Text download cancelled by user timeout. Url: {Url}", url);
+                    throw;
+                }
+
+                Log.Debug(
+                    ex,
+                    "Text download timed out or was cancelled internally. Url will be skipped. Url: {Url}",
+                    url
+                );
+
+                return string.Empty;
             }
             catch (Exception ex)
             {

@@ -182,9 +182,9 @@ namespace RadioApp.Services.StreamDiscovery
             return "Detected stream candidates:\r\n" + string.Join("\r\n", top);
         }
         public async Task<DiscoveredRadioStream> TryDiscoverBestGenericCandidateAsync(
-                                                    string pageUrl,
-                                                    List<string> candidates,
-                                                    string html)
+                                                            string pageUrl,
+                                                            List<string> candidates,
+                                                            string html)
         {
             var evaluatedCandidates = candidates
                 .Where(x => !string.IsNullOrWhiteSpace(x))
@@ -254,8 +254,9 @@ namespace RadioApp.Services.StreamDiscovery
                     }
 
                     Log.Information(
-                        "HTTP-confirmed stream candidate. Score: {Score}, Url: {Url}, Bitrate: {Bitrate}",
+                        "HTTP-confirmed stream candidate. Score: {Score}, CandidateUrl: {CandidateUrl}, FinalUrl: {FinalUrl}, Bitrate: {Bitrate}",
                         candidate.Score,
+                        candidate.Url,
                         streamInfo.StreamUrl,
                         streamInfo.Bitrate.HasValue ? streamInfo.Bitrate.Value.ToString() : "unknown"
                     );
@@ -273,32 +274,47 @@ namespace RadioApp.Services.StreamDiscovery
 
             if (confirmed != null)
             {
-                DiscoveredRadioStream confirmedStream = confirmed.StreamInfo;
+                DiscoveredRadioStream streamInfo = confirmed.StreamInfo;
 
                 string pageTitle = ExtractPageTitle(html);
 
+                string stationName = streamInfo.StationName;
+
                 if (!string.IsNullOrWhiteSpace(pageTitle))
                 {
-                    confirmedStream.StationName = pageTitle;
+                    stationName = pageTitle;
                 }
 
-                if (string.IsNullOrWhiteSpace(confirmedStream.StationName))
+                if (string.IsNullOrWhiteSpace(stationName))
                 {
-                    confirmedStream.StationName = BuildFallbackStationName(pageUrl, confirmedStream.StreamUrl);
+                    stationName = BuildFallbackStationName(pageUrl, confirmed.Url);
                 }
 
-                if (string.IsNullOrWhiteSpace(confirmedStream.Description))
+                string description = streamInfo.Description;
+
+                if (string.IsNullOrWhiteSpace(description))
                 {
-                    confirmedStream.Description = BuildTopCandidateDescription(evaluatedCandidates);
+                    description = BuildTopCandidateDescription(evaluatedCandidates);
                 }
+
+                var result = new DiscoveredRadioStream
+                {
+                    PageUrl = pageUrl,
+                    StreamUrl = confirmed.Url,
+                    StationName = stationName,
+                    Description = description,
+                    Genre = streamInfo.Genre,
+                    Bitrate = streamInfo.Bitrate
+                };
 
                 Log.Information(
-                    "Best HTTP-confirmed generic stream selected. StreamUrl: {StreamUrl}, StationName: {StationName}",
-                    confirmedStream.StreamUrl,
-                    confirmedStream.StationName
+                    "Best HTTP-confirmed generic stream selected. SavedStreamUrl: {SavedStreamUrl}, FinalCheckedUrl: {FinalCheckedUrl}, StationName: {StationName}",
+                    result.StreamUrl,
+                    streamInfo.StreamUrl,
+                    result.StationName
                 );
 
-                return confirmedStream;
+                return result;
             }
 
             var strongUnconfirmed = evaluatedCandidates

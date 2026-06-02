@@ -47,6 +47,7 @@
                             VerticalContentAlignment="Center"/>
                     <Button Content="▶" 
                             x:Name="PlayPauseButton" 
+                            Click="PlayPauseButton_Click"
                             Grid.Column="2" 
                             Grid.Row="1" 
                             HorizontalContentAlignment="Center"
@@ -57,7 +58,8 @@
                             HorizontalContentAlignment="Center"
                             VerticalContentAlignment="Center"/>
                 </Grid>
-                <TextBlock TextWrapping="Wrap"  
+                <TextBlock x:Name="NowPlayingTextBlock"
+                           TextWrapping="Wrap"  
                            TextAlignment="Center" 
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center"
@@ -71,7 +73,8 @@
             </Grid.RowDefinitions>
             <ListBox x:Name="StationsListBox"
                      Grid.Row="0"
-                     Grid.Column="1">
+                     Grid.Column="1"
+                     MouseDoubleClick="StationsListBox_MouseDoubleClick">
 
                 <ListBox.ItemTemplate>
                     <DataTemplate>

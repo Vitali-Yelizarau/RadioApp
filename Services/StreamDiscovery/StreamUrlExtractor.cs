@@ -262,5 +262,86 @@ namespace RadioApp.Services.StreamDiscovery
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
+
+        public List<string> ExtractPossibleJsonApiUrls(string text, string baseUrl)
+        {
+            var result = new List<string>();
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return result;
+            }
+
+            List<string> allUrls = ExtractAllUrls(text, baseUrl);
+
+            foreach (string url in allUrls)
+            {
+                if (string.IsNullOrWhiteSpace(url))
+                {
+                    continue;
+                }
+
+                string lower = url.ToLowerInvariant();
+
+                bool isStaticAsset =
+                    lower.EndsWith(".png") ||
+                    lower.EndsWith(".jpg") ||
+                    lower.EndsWith(".jpeg") ||
+                    lower.EndsWith(".gif") ||
+                    lower.EndsWith(".svg") ||
+                    lower.EndsWith(".webp") ||
+                    lower.EndsWith(".css") ||
+                    lower.EndsWith(".ico") ||
+                    lower.EndsWith(".woff") ||
+                    lower.EndsWith(".woff2") ||
+                    lower.EndsWith(".ttf") ||
+                    lower.Contains("/image/") ||
+                    lower.Contains("/images/") ||
+                    lower.Contains("/static/image/") ||
+                    lower.Contains("/assets/images/");
+
+                if (isStaticAsset)
+                {
+                    continue;
+                }
+
+                bool isKnownBad =
+                    lower.Contains("developer.mozilla.org") ||
+                    lower.Contains("code.jquery.com/json") ||
+                    lower.Contains("vjs.zencdn.net/json") ||
+                    lower.Contains("googlesyndication") ||
+                    lower.Contains("googleapis.com") ||
+                    lower.Contains("doubleclick") ||
+                    lower.Contains("facebook.com") ||
+                    lower.Contains("twitter.com") ||
+                    lower.Contains("x.com/");
+
+                if (isKnownBad)
+                {
+                    continue;
+                }
+
+                bool looksLikeJsonOrApi =
+                    lower.EndsWith(".json") ||
+                    lower.Contains(".json?") ||
+                    lower.Contains("/api/") ||
+                    lower.Contains("api.") ||
+                    lower.Contains("/ajax/") ||
+                    lower.Contains("ajax.php") ||
+                    lower.Contains("zenders") ||
+                    lower.Contains("stations.json") ||
+                    lower.Contains("channels.json") ||
+                    lower.Contains("playlist.json");
+
+                if (looksLikeJsonOrApi)
+                {
+                    result.Add(url);
+                }
+            }
+
+            return result
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
     }
 }

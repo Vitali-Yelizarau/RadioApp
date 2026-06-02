@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Security.Policy;
 
 namespace RadioApp.Services
 {
@@ -89,7 +90,10 @@ namespace RadioApp.Services
             string host = uri.Host.ToLowerInvariant();
             string path = uri.AbsolutePath.ToLowerInvariant();
 
-            return lower.Contains(".mp3")
+            return lower.Contains("mp3channels.webradio.")
+                || lower.Contains(".webradio.antenne.de")
+
+                || lower.Contains(".mp3")
                 || lower.Contains(".aac")
                 || lower.Contains(".ogg")
                 || lower.Contains(".opus")
@@ -116,7 +120,6 @@ namespace RadioApp.Services
                 || host.StartsWith("streams.")
                 || host.Contains(".stream.")
                 || host.Contains(".streams.")
-                || host.Contains(".stream.")
                 || host.Contains("stream.")
                 || host.Contains(".stream.vip")
                 || host.EndsWith("stream.vip")
@@ -137,38 +140,98 @@ namespace RadioApp.Services
                 return true;
             }
 
-            string lower = url.ToLowerInvariant();
+            if (!Uri.TryCreate(url, UriKind.Absolute, out Uri uri))
+            {
+                return true;
+            }
 
-            return lower.EndsWith(".png")
-                || lower.EndsWith(".jpg")
-                || lower.EndsWith(".jpeg")
-                || lower.EndsWith(".gif")
-                || lower.EndsWith(".svg")
-                || lower.EndsWith(".webp")
-                || lower.EndsWith(".ico")
-                || lower.EndsWith(".css")
-                || lower.Contains("/image/")
-                || lower.Contains("/images/")
-                || lower.Contains("/assets/images/")
-                || lower.Contains("recaptcha")
-                || lower.Contains("googlesyndication")
-                || lower.Contains("accuweather")
-                || lower.Contains("33across")
-                || lower.Contains("sonobi");
+            string lower = url.ToLowerInvariant();
+            string host = uri.Host.ToLowerInvariant();
+            string path = uri.AbsolutePath.ToLowerInvariant();
+
+            if (lower.EndsWith(".png") ||
+                lower.EndsWith(".jpg") ||
+                lower.EndsWith(".jpeg") ||
+                lower.EndsWith(".gif") ||
+                lower.EndsWith(".svg") ||
+                lower.EndsWith(".webp") ||
+                lower.EndsWith(".css") ||
+                lower.EndsWith(".ico") ||
+                lower.EndsWith(".woff") ||
+                lower.EndsWith(".woff2") ||
+                lower.EndsWith(".ttf"))
+            {
+                return true;
+            }
+
+            if (lower.Contains("/image/") ||
+                lower.Contains("/images/") ||
+                lower.Contains("/static/image/") ||
+                lower.Contains("/assets/images/"))
+            {
+                return true;
+            }
+
+            if (IsPossibleStreamUrl(url))
+            {
+                return true;
+            }
+
+            if (host.Contains("googlesyndication") ||
+                host.Contains("doubleclick") ||
+                host.Contains("google-analytics") ||
+                host.Contains("facebook.com") ||
+                host.Contains("twitter.com") ||
+                host.Contains("x.com"))
+            {
+                return true;
+            }
+
+            return false;
         }
 
         public bool IsDefinitelyNotStreamUrl(string url)
         {
-            string lower = url.ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                return true;
+            }
 
-            return lower.EndsWith(".png")
-                || lower.EndsWith(".jpg")
-                || lower.EndsWith(".jpeg")
-                || lower.EndsWith(".gif")
-                || lower.EndsWith(".svg")
-                || lower.EndsWith(".webp")
-                || lower.EndsWith(".css")
-                || lower.EndsWith(".ico")
+
+            if (!Uri.TryCreate(url, UriKind.Absolute, out Uri uri))
+            {
+                return true;
+            }
+
+            string lower = url.ToLowerInvariant();
+            string path = uri.AbsolutePath.ToLowerInvariant();
+
+            if (lower.Contains("mp3channels.webradio.") ||
+                lower.Contains(".webradio.antenne.de"))
+            {
+                return false;
+            }
+
+            if (uri.Host.Equals("www.deutschland.fm", StringComparison.OrdinalIgnoreCase) ||
+                uri.Host.Equals("deutschland.fm", StringComparison.OrdinalIgnoreCase))
+            {
+                if (path.Contains("mp3") ||
+                    path.Contains("stream") ||
+                    path.Contains("icecast") ||
+                    path.StartsWith("/radio/"))
+                {
+                    return true;
+                }
+            }
+
+            return path.EndsWith(".png")
+                || path.EndsWith(".jpg")
+                || path.EndsWith(".jpeg")
+                || path.EndsWith(".gif")
+                || path.EndsWith(".svg")
+                || path.EndsWith(".webp")
+                || path.EndsWith(".css")
+                || path.EndsWith(".ico")
                 || lower.Contains("/css/")
                 || lower.Contains("/image/")
                 || lower.Contains("/images/")

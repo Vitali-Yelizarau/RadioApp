@@ -2,7 +2,7 @@
 using RadioApp.Services.StreamDiscovery;
 using Serilog;
 using System;
-using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace RadioApp.Services
@@ -27,11 +27,12 @@ namespace RadioApp.Services
             _genericStreamDiscoveryService = new GenericStreamDiscoveryService();
         }
 
-        public async Task<DiscoveredRadioStream> DiscoverAsync(string pageUrl)
+        public async Task<DiscoveredRadioStream> DiscoverAsync(string pageUrl, CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             Log.Information("Stream discovery started. PageUrl: {PageUrl}", pageUrl);
 
-            var candidates = await _streamCandidateCollector.CollectCandidateStreamUrlsAsync(pageUrl);
+            var candidates = await _streamCandidateCollector.CollectCandidateStreamUrlsAsync(pageUrl, cancellationToken);
 
             Log.Information(
                 "Collected {Count} candidate stream URLs for PageUrl: {PageUrl}",
@@ -41,7 +42,7 @@ namespace RadioApp.Services
 
             candidates = _streamCandidatePrioritizer.SortCandidatesByPriority(candidates);
 
-            string htmlForFallback = await _httpTextDownloadService.DownloadTextSafeAsync(pageUrl);
+            string htmlForFallback = await _httpTextDownloadService.DownloadTextSafeAsync(pageUrl, cancellationToken);
 
             DiscoveredRadioStream secureNetResult =
                 await _secureNetSystemsDiscoveryService.TryDiscoverSecureNetDirectStreamAsync(pageUrl, candidates);
@@ -59,12 +60,28 @@ namespace RadioApp.Services
                 return amperwaveResult;
             }
 
-            DiscoveredRadioStream secureNetByCallSignResult =
-                await _secureNetSystemsDiscoveryService.TryDiscoverSecureNetFromCallSignAsync(pageUrl, htmlForFallback);
+            bool hasSecureNetEvidence = _secureNetSystemsDiscoveryService.HasSecureNetEvidence(htmlForFallback, candidates);
 
-            if (secureNetByCallSignResult != null)
+            if (hasSecureNetEvidence)
             {
-                return secureNetByCallSignResult;
+                DiscoveredRadioStream secureNetByCallSignResult =
+                    await _secureNetSystemsDiscoveryService.TryDiscoverSecureNetFromCallSignAsync(
+                        pageUrl,
+                        htmlForFallback,
+                        cancellationToken
+                    );
+
+                if (secureNetByCallSignResult != null)
+                {
+                    return secureNetByCallSignResult;
+                }
+            }
+            else
+            {
+                Log.Information(
+                    "SecureNetSystems call sign fallback skipped because no SecureNet evidence was found. PageUrl: {PageUrl}",
+                    pageUrl
+                );
             }
 
             DiscoveredRadioStream genericResult =

@@ -57,11 +57,11 @@ namespace RadioApp.Services
         {
             using (var db = new RadioDbContext())
             {
-                return db.MediaItems
-                         .Where(x => x.IsEnabled)
-                         .OrderBy(x => x.SortOrder)
-                         .ThenBy(x => x.Title)
-                         .ToList();
+                return await  db.MediaItems
+                                .Where(x => x.IsEnabled)
+                                .OrderBy(x => x.SortOrder)
+                                .ThenBy(x => x.Title)
+                                .ToListAsync();
             }
         }
 

@@ -3,6 +3,7 @@ using RadioApp.Models;
 using RadioApp.Services;
 using Serilog;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -16,10 +17,15 @@ namespace RadioApp
     public partial class MainWindow : Window
     {
         private readonly RadioDatabaseService _databaseService;
+        private readonly VlcPlaybackService _playbackService = new VlcPlaybackService();
 
         private List<MediaItem> _playlist;
         private int _currentIndex;
+
+        private MediaItem _currentlyPlayingStation;
         private bool _isPlaying;
+        private bool _isPaused;
+        private bool _isChangingStation;
         private MediaItem SelectedStation
         {
             get
@@ -36,6 +42,11 @@ namespace RadioApp
             _playlist = new List<MediaItem>();
 
             Loaded += async (s, e) => await MainWindow_LoadedAsync(s, e);
+
+            _playbackService.PlaybackStarted += PlaybackService_PlaybackStarted;
+            _playbackService.PlaybackPaused += PlaybackService_PlaybackPaused;
+            _playbackService.PlaybackStopped += PlaybackService_PlaybackStopped;
+            _playbackService.PlaybackFailed += PlaybackService_PlaybackFailed;
         }
 
         private async Task MainWindow_LoadedAsync(object sender, RoutedEventArgs e)
@@ -63,6 +74,8 @@ namespace RadioApp
                     _currentIndex = -1;
                     Log.Information("Playlist is empty.");
                 }
+
+                _ = _playbackService.InitializeAsync();
             }
             catch (Exception ex)
             {
@@ -137,22 +150,6 @@ namespace RadioApp
                     MessageBoxButton.OK,
                     MessageBoxImage.Error
                 );
-            }
-        }
-
-        public void DeleteRadioStation(int mediaItemId)
-        {
-            using (var db = new RadioDbContext())
-            {
-                var item = db.MediaItems.FirstOrDefault(x => x.Id == mediaItemId);
-
-                if (item == null)
-                {
-                    return;
-                }
-
-                db.MediaItems.Remove(item);
-                db.SaveChanges();
             }
         }
 
@@ -239,6 +236,280 @@ namespace RadioApp
                 );
             }
         }
+
+        private async void StationsListBox_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            MediaItem selected = SelectedStation;
+
+            if (selected == null)
+            {
+                return;
+            }
+
+            await PlayStationAsync(selected);
+        }
+
+        private async void PlayPauseButton_Click(object sender, RoutedEventArgs e)
+        {
+            MediaItem selected = SelectedStation;
+
+            if (selected == null)
+            {
+                Log.Information("Play/Pause button clicked, but no station is selected.");
+                return;
+            }
+
+            if (_currentlyPlayingStation != null &&
+                _currentlyPlayingStation.Id == selected.Id)
+            {
+                if (_isPlaying)
+                {
+                    PauseCurrentStation();
+                    return;
+                }
+
+                if (_isPaused)
+                {
+                    ResumeCurrentStation();
+                    return;
+                }
+            }
+
+            await PlayStationAsync(selected);
+        }
+
+        private void PlaybackService_PlaybackStarted(object sender, EventArgs e)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                _isPlaying = true;
+                _isPaused = false;
+
+                UpdatePlaybackUi();
+            });
+        }
+
+        private void PlaybackService_PlaybackPaused(object sender, EventArgs e)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                _isPlaying = false;
+                _isPaused = true;
+
+                UpdatePlaybackUi();
+            });
+        }
+
+        private void PlaybackService_PlaybackStopped(object sender, EventArgs e)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                _isPlaying = false;
+                _isPaused = false;
+
+                UpdatePlaybackUi();
+            });
+        }
+
+        private void PlaybackService_PlaybackFailed(object sender, string message)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                _isPlaying = false;
+                _isPaused = false;
+                _currentlyPlayingStation = null;
+
+                UpdatePlaybackUi();
+
+                MessageBox.Show(
+                    message,
+                    "Playback failed",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning
+                );
+            });
+        }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            try
+            {
+                _playbackService.PlaybackStarted -= PlaybackService_PlaybackStarted;
+                _playbackService.PlaybackPaused -= PlaybackService_PlaybackPaused;
+                _playbackService.PlaybackStopped -= PlaybackService_PlaybackStopped;
+                _playbackService.PlaybackFailed -= PlaybackService_PlaybackFailed;
+
+                StopCurrentStation();
+
+                _playbackService.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Error while closing VLC playback service.");
+            }
+
+            base.OnClosed(e);
+        }
+
+        private async Task PlayStationAsync(MediaItem station)
+        {
+            if (station == null)
+            {
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(station.StreamUrl))
+            {
+                MessageBox.Show(
+                    "Selected station does not have Stream URL.",
+                    "Cannot play station",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning
+                );
+
+                return;
+            }
+
+            try
+            {
+                _isChangingStation = true;
+
+                Log.Information(
+                    "Starting playback. StationId: {StationId}, Title: {Title}, StreamUrl: {StreamUrl}",
+                    station.Id,
+                    station.Title,
+                    station.StreamUrl
+                );
+
+                await _playbackService.PlayAsync(station.StreamUrl);
+
+                _currentlyPlayingStation = station;
+                _isPlaying = true;
+                _isPaused = false;
+
+                UpdatePlaybackUi();
+            }
+            catch (Exception ex)
+            {
+                _isPlaying = false;
+                _isPaused = false;
+                _currentlyPlayingStation = null;
+
+                UpdatePlaybackUi();
+
+                Log.Error(
+                    ex,
+                    "Failed to start playback. StationId: {StationId}, Title: {Title}, StreamUrl: {StreamUrl}",
+                    station.Id,
+                    station.Title,
+                    station.StreamUrl
+                );
+
+                MessageBox.Show(
+                    "Could not play this station. Details were written to log.",
+                    "Playback failed",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error
+                );
+            }
+            finally
+            {
+                _isChangingStation = false;
+            }
+        }
+
+        private void PauseCurrentStation()
+        {
+            if (!_isPlaying || _currentlyPlayingStation == null)
+            {
+                return;
+            }
+
+            try
+            {
+                _playbackService.Pause();
+
+                _isPlaying = false;
+                _isPaused = true;
+
+                Log.Information(
+                    "Playback paused. StationId: {StationId}, Title: {Title}",
+                    _currentlyPlayingStation.Id,
+                    _currentlyPlayingStation.Title
+                );
+
+                UpdatePlaybackUi();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Failed to pause playback.");
+            }
+        }
+
+        private void ResumeCurrentStation()
+        {
+            if (!_isPaused || _currentlyPlayingStation == null)
+            {
+                return;
+            }
+
+            try
+            {
+                _playbackService.Resume();
+
+                _isPlaying = true;
+                _isPaused = false;
+
+                Log.Information(
+                    "Playback resumed. StationId: {StationId}, Title: {Title}",
+                    _currentlyPlayingStation.Id,
+                    _currentlyPlayingStation.Title
+                );
+
+                UpdatePlaybackUi();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Failed to resume playback.");
+            }
+        }
+
+        private void StopCurrentStation()
+        {
+            try
+            {
+                _playbackService.Stop();
+
+                _isPlaying = false;
+                _isPaused = false;
+                _currentlyPlayingStation = null;
+
+                Log.Information("Playback stopped.");
+
+                UpdatePlaybackUi();
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Failed to stop current station.");
+            }
+        }
+
+        public void DeleteRadioStation(int mediaItemId)
+        {
+            using (var db = new RadioDbContext())
+            {
+                var item = db.MediaItems.FirstOrDefault(x => x.Id == mediaItemId);
+
+                if (item == null)
+                {
+                    return;
+                }
+
+                db.MediaItems.Remove(item);
+                db.SaveChanges();
+            }
+        }
+
         private async Task ReloadPlaylistAsync()
         {
             _playlist = await _databaseService.InitializeDatabaseAndGetEnabledMediaItemsAsync();
@@ -248,6 +519,33 @@ namespace RadioApp
             //StationsListBox.DisplayMemberPath = "Title";
 
             Log.Information("Playlist reloaded. Items count: {Count}", _playlist.Count);
+        }
+
+        private void UpdatePlaybackUi()
+        {
+            if (_currentlyPlayingStation == null)
+            {
+                PlayPauseButton.Content = "▶";
+                NowPlayingTextBlock.Text = "Now playing:";
+                return;
+            }
+
+            if (_isPlaying)
+            {
+                PlayPauseButton.Content = "⏸";
+                NowPlayingTextBlock.Text = "Now playing: " + _currentlyPlayingStation.Title;
+                return;
+            }
+
+            if (_isPaused)
+            {
+                PlayPauseButton.Content = "▶";
+                NowPlayingTextBlock.Text = "Paused: " + _currentlyPlayingStation.Title;
+                return;
+            }
+
+            PlayPauseButton.Content = "▶";
+            NowPlayingTextBlock.Text = "Now playing:";
         }
     }
 }
