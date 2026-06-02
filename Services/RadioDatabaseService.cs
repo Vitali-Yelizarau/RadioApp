@@ -159,6 +159,12 @@ namespace RadioApp.Services
             string streamUrl,
             string genre)
         {
+            title = Truncate(title, 200);
+            description = Truncate(description, 1000);
+            pageUrl = Truncate(pageUrl, 1000);
+            streamUrl = Truncate(streamUrl, 1000);
+            genre = Truncate(genre, 100);
+
             using (var db = new RadioDbContext())
             {
                 string normalizedNewStreamUrl = NormalizeStreamUrl(streamUrl);
@@ -212,6 +218,23 @@ namespace RadioApp.Services
 
                 return newItem;
             }
+        }
+
+        private static string Truncate(string value, int maxLength)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+
+            value = value.Trim();
+
+            if (value.Length <= maxLength)
+            {
+                return value;
+            }
+
+            return value.Substring(0, maxLength);
         }
     }
 }

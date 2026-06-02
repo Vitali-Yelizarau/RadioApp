@@ -44,7 +44,8 @@
                                 x:Name="PreviousItemButton"
                                 Grid.Column="0"
                                 HorizontalContentAlignment="Center"
-                                VerticalContentAlignment="Center"/>
+                                VerticalContentAlignment="Center"
+                                Click="PreviousItemButton_Click"/>
 
                         <Button Content="▶"
                                 x:Name="PlayPauseButton"
@@ -58,7 +59,8 @@
                                 x:Name="NextItemButton"
                                 Grid.Column="2"
                                 HorizontalContentAlignment="Center"
-                                VerticalContentAlignment="Center"/>
+                                VerticalContentAlignment="Center"
+                                Click="NextItemButton_Click"/>
                     </Grid>
 
                     <StackPanel Orientation="Horizontal"

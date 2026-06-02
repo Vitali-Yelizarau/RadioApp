@@ -3,6 +3,7 @@ using RadioApp.Services;
 using Serilog;
 using System;
 using System.Linq;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -487,34 +488,6 @@ namespace RadioApp
             return result;
         }
 
-        private async Task<DiscoveredRadioStream> ValidateDirectStreamAsync(string pageUrl, string streamUrl)
-        {
-            ValidateStreamUrl(streamUrl);
-
-            Log.Information(
-                "Stream URL was entered manually. Checking stream: {StreamUrl}",
-                streamUrl
-            );
-
-            bool isAudio = await _streamInfoService.IsAudioStreamAsync(streamUrl);
-
-            if (!isAudio)
-            {
-                throw new InvalidOperationException("The entered Stream URL does not look like a playable audio stream.");
-            }
-
-            DiscoveredRadioStream result = await _streamInfoService.ReadStreamInfoAsync(pageUrl, streamUrl);
-
-            Log.Information(
-                "Manual stream URL checked. PageUrl: {PageUrl}, StreamUrl: {StreamUrl}, StationName: {StationName}",
-                result.PageUrl,
-                result.StreamUrl,
-                result.StationName
-            );
-
-            return result;
-        }
-
         private void ApplyResultToForm(DiscoveredRadioStream result)
         {
             if (!string.IsNullOrWhiteSpace(result.StreamUrl))
@@ -525,45 +498,19 @@ namespace RadioApp
             if (string.IsNullOrWhiteSpace(TitleTextBox.Text) &&
                 !string.IsNullOrWhiteSpace(result.StationName))
             {
-                TitleTextBox.Text = result.StationName;
+                TitleTextBox.Text = CleanDisplayText(result.StationName);
             }
 
             if (string.IsNullOrWhiteSpace(DescriptionTextBox.Text))
             {
                 if (!string.IsNullOrWhiteSpace(result.Description))
                 {
-                    DescriptionTextBox.Text = result.Description;
+                    DescriptionTextBox.Text = CleanDisplayText(result.Description);
                 }
                 else if (!string.IsNullOrWhiteSpace(result.StationName))
                 {
-                    DescriptionTextBox.Text = result.StationName;
+                    DescriptionTextBox.Text = CleanDisplayText(result.StationName);
                 }
-            }
-        }
-
-        private void ValidatePageUrl(string pageUrl)
-        {
-            if (string.IsNullOrWhiteSpace(pageUrl))
-            {
-                throw new InvalidOperationException("Radio page URL is required.");
-            }
-
-            if (!Uri.IsWellFormedUriString(pageUrl, UriKind.Absolute))
-            {
-                throw new InvalidOperationException("Radio page URL must be a valid absolute URL.");
-            }
-        }
-
-        private void ValidateStreamUrl(string streamUrl)
-        {
-            if (string.IsNullOrWhiteSpace(streamUrl))
-            {
-                throw new InvalidOperationException("Stream URL is empty.");
-            }
-
-            if (!Uri.IsWellFormedUriString(streamUrl, UriKind.Absolute))
-            {
-                throw new InvalidOperationException("Stream URL must be a valid absolute URL.");
             }
         }
 
@@ -678,6 +625,18 @@ namespace RadioApp
                 .Trim()
                 .TrimEnd('/')
                 .ToLowerInvariant();
+        }
+
+        private static string CleanDisplayText(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+
+            string decoded = WebUtility.HtmlDecode(value);
+
+            return decoded.Trim();
         }
     }
 }

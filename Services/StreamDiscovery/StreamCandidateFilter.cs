@@ -206,6 +206,7 @@ namespace RadioApp.Services
                 || path.Contains("/manifest")
 
                 || host.StartsWith("online.")
+                || host.StartsWith("listen.")
                 || host.StartsWith("stream.")
                 || host.StartsWith("streams.")
                 || host.Contains(".stream.")

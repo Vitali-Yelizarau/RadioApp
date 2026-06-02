@@ -3,6 +3,7 @@ using RadioApp.Services.StreamDiscovery;
 using Serilog;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -14,6 +15,7 @@ namespace RadioApp.Services
         private readonly SecureNetSystemsDiscoveryService _secureNetSystemsDiscoveryService;
         private readonly GenericStreamDiscoveryService _genericStreamDiscoveryService;
         private readonly InternetRadioDirectoryDiscoveryService _internetRadioDirectoryDiscoveryService;
+        private readonly HearMeFmDiscoveryService _hearMeFmDiscoveryService;
 
         public RadioStreamDiscoveryService()
         {
@@ -21,6 +23,10 @@ namespace RadioApp.Services
             _secureNetSystemsDiscoveryService = new SecureNetSystemsDiscoveryService();
             _genericStreamDiscoveryService = new GenericStreamDiscoveryService();
             _internetRadioDirectoryDiscoveryService = new InternetRadioDirectoryDiscoveryService();
+            _hearMeFmDiscoveryService = new HearMeFmDiscoveryService(
+                new HttpTextDownloadService(),
+                new RadioStreamInfoService()
+            );
         }
 
         public async Task<DiscoveredRadioStream> DiscoverAsync(
@@ -55,12 +61,11 @@ namespace RadioApp.Services
              */
             if (_internetRadioDirectoryDiscoveryService.IsDirectInternetRadioStationPage(pageUrl))
             {
-                DiscoveredRadioStream directInternetRadioResult =
-                    await _internetRadioDirectoryDiscoveryService.TryDiscoverAsync(
-                        pageUrl,
-                        htmlForFallback,
-                        cancellationToken
-                    );
+                DiscoveredRadioStream directInternetRadioResult = await _internetRadioDirectoryDiscoveryService.TryDiscoverAsync(
+                    pageUrl,
+                    htmlForFallback,
+                    cancellationToken
+                );
 
                 if (directInternetRadioResult != null)
                 {
@@ -73,10 +78,39 @@ namespace RadioApp.Services
                 );
             }
 
+            DiscoveredRadioStream hearMeResult = await _hearMeFmDiscoveryService.TryDiscoverAsync(
+                pageUrl,
+                cancellationToken
+            );
+
+            if (hearMeResult != null)
+            {
+                Log.Information(
+                    "HearMe.fm stream discovered. PageUrl: {PageUrl}, StreamUrl: {StreamUrl}",
+                    pageUrl,
+                    hearMeResult.StreamUrl
+                );
+
+                return hearMeResult;
+            }
+
             List<string> candidates = await _streamCandidateCollector.CollectCandidateStreamUrlsAsync(
                 pageUrl,
                 cancellationToken
             );
+
+            foreach (string candidate in BuildListenSubdomainCandidates(pageUrl))
+            {
+                if (!candidates.Contains(candidate, StringComparer.OrdinalIgnoreCase))
+                {
+                    Log.Information(
+                        "Listen-subdomain fallback candidate added. Candidate: {Candidate}",
+                        candidate
+                    );
+
+                    candidates.Add(candidate);
+                }
+            }
 
             Log.Information(
                 "Collected {Count} candidate stream URLs for PageUrl: {PageUrl}",
@@ -155,6 +189,20 @@ namespace RadioApp.Services
             }
 
             throw new InvalidOperationException("Could not find a playable stream URL on this page.");
+        }
+
+        private static IEnumerable<string> BuildListenSubdomainCandidates(string pageUrl)
+        {
+            if (!Uri.TryCreate(pageUrl, UriKind.Absolute, out var pageUri))
+                yield break;
+
+            var host = pageUri.Host;
+
+            if (host.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
+                host = host.Substring(4);
+
+            yield return $"https://listen.{host}/";
+            yield return $"http://listen.{host}/";
         }
     }
 }

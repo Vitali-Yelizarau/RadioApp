@@ -4,6 +4,7 @@ using RadioApp.Services;
 using Serilog;
 using System;
 using System.Collections.Generic;
+using System.Data.Entity.Validation;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
@@ -139,6 +140,29 @@ namespace RadioApp
                     StationsListBox.SelectedItem = selectedAfterSave;
                     StationsListBox.ScrollIntoView(selectedAfterSave);
                 }
+            }
+            catch (DbEntityValidationException ex)
+            {
+                foreach (var validationErrors in ex.EntityValidationErrors)
+                {
+                    foreach (var validationError in validationErrors.ValidationErrors)
+                    {
+                        Log.Error(
+                            "Entity validation error. Property: {PropertyName}, Error: {ErrorMessage}",
+                            validationError.PropertyName,
+                            validationError.ErrorMessage
+                        );
+                    }
+                }
+
+                Log.Error(ex, "Failed to add/update station because entity validation failed.");
+
+                MessageBox.Show(
+                    "Could not save this station. Details were written to log.",
+                    "Save failed",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error
+                );
             }
             catch (Exception ex)
             {
@@ -282,6 +306,16 @@ namespace RadioApp
             {
                 await PlayStationAsync(selected);
             });
+        }
+
+        private async void NextItemButton_Click(object sender, RoutedEventArgs e)
+        {
+            await SwitchStationAsync(1);
+        }
+
+        private async void PreviousItemButton_Click(object sender, RoutedEventArgs e)
+        {
+            await SwitchStationAsync(-1);
         }
 
         private void VolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -594,6 +628,52 @@ namespace RadioApp
 
             PlayPauseButton.Content = "▶";
             NowPlayingTextBlock.Text = "Now playing:";
+        }
+
+        private async Task SwitchStationAsync(int direction)
+        {
+            int stationCount = StationsListBox.Items.Count;
+
+            if (stationCount == 0)
+            {
+                return;
+            }
+
+            int currentIndex = StationsListBox.SelectedIndex;
+            int newIndex;
+
+            if (currentIndex < 0)
+            {
+                newIndex = direction > 0 ? 0 : stationCount - 1;
+            }
+            else
+            {
+                newIndex = currentIndex + direction;
+
+                if (newIndex >= stationCount)
+                {
+                    newIndex = 0;
+                }
+                else if (newIndex < 0)
+                {
+                    newIndex = stationCount - 1;
+                }
+            }
+
+            StationsListBox.SelectedIndex = newIndex;
+            StationsListBox.ScrollIntoView(StationsListBox.SelectedItem);
+
+            MediaItem selected = SelectedStation;
+
+            if (selected == null)
+            {
+                return;
+            }
+
+            await RunPlaybackOperationAsync(async () =>
+            {
+                await PlayStationAsync(selected);
+            });
         }
     }
 }

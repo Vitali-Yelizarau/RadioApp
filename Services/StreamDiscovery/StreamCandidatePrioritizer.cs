@@ -198,6 +198,12 @@ namespace RadioApp.Services.StreamDiscovery
                 result.Reason += "online-host;";
             }
 
+            if (host.StartsWith("listen."))
+            {
+                result.Score += 120;
+                result.Reason += "listen-host;";
+            }
+
             if (host.StartsWith("stream.") || host.StartsWith("streams."))
             {
                 result.Score += 100;
