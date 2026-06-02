@@ -5,7 +5,7 @@ using System.Text.RegularExpressions;
 
 namespace RadioApp.Services.StreamDiscovery
 {
-    internal class StreamUrlExtractor
+    public class StreamUrlExtractor
     {
         private readonly StreamCandidateFilter _filter;
 
@@ -281,7 +281,63 @@ namespace RadioApp.Services.StreamDiscovery
                     continue;
                 }
 
+                if (!Uri.TryCreate(url, UriKind.Absolute, out Uri uri))
+                {
+                    continue;
+                }
+
                 string lower = url.ToLowerInvariant();
+                string host = uri.Host.ToLowerInvariant();
+                string path = uri.AbsolutePath.ToLowerInvariant();
+
+                /*
+                 * IMPORTANT:
+                 * Playlist / stream endpoints are NOT JSON/API text resources.
+                 * They are handled by playlist extraction or by stream validation.
+                 *
+                 * If we allow them here, the JSON/API extractor may try to download
+                 * an endless audio stream as text and hang until timeout.
+                 */
+                bool isPlaylistUrl =
+                    path.EndsWith(".m3u") ||
+                    path.EndsWith(".m3u8") ||
+                    path.EndsWith(".pls") ||
+                    lower.Contains(".m3u?") ||
+                    lower.Contains(".m3u8?") ||
+                    lower.Contains(".pls?") ||
+                    path.Contains("/m3u/") ||
+                    path.Contains("/pls/") ||
+                    path.Contains("/playlist.m3u") ||
+                    path.Contains("/playlist.pls");
+
+                if (isPlaylistUrl)
+                {
+                    continue;
+                }
+
+                /*
+                 * These are likely playable stream endpoints, not JSON/API endpoints.
+                 * Do not download them as text.
+                 */
+                bool isStreamLikeEndpoint =
+                    path.Contains("/stream") ||
+                    path.Contains("/live") ||
+                    path.Contains("/listen") ||
+                    path.Contains("/aac") ||
+                    path.Contains("/mp3") ||
+                    path.Contains("/ogg") ||
+                    path.Contains("/opus") ||
+                    host.StartsWith("stream.") ||
+                    host.StartsWith("streams.") ||
+                    host.Contains(".stream.") ||
+                    host.Contains(".streams.") ||
+                    host.Contains("icecast") ||
+                    host.Contains("shoutcast");
+
+                if (isStreamLikeEndpoint)
+                {
+                    continue;
+                }
 
                 bool isStaticAsset =
                     lower.EndsWith(".png") ||
@@ -311,27 +367,36 @@ namespace RadioApp.Services.StreamDiscovery
                     lower.Contains("vjs.zencdn.net/json") ||
                     lower.Contains("googlesyndication") ||
                     lower.Contains("googleapis.com") ||
+                    lower.Contains("googleadservices.com") ||
+                    lower.Contains("googletagmanager.com") ||
                     lower.Contains("doubleclick") ||
                     lower.Contains("facebook.com") ||
                     lower.Contains("twitter.com") ||
-                    lower.Contains("x.com/");
+                    lower.Contains("x.com/") ||
+                    lower.Contains("usercentrics") ||
+                    lower.Contains("cookielaw");
 
                 if (isKnownBad)
                 {
                     continue;
                 }
 
+                /*
+                 * Keep this strict.
+                 * Do not add generic words like "stream", "radio", "listen", "player" here.
+                 * Those made the extractor too greedy before.
+                 */
                 bool looksLikeJsonOrApi =
                     lower.EndsWith(".json") ||
                     lower.Contains(".json?") ||
-                    lower.Contains("/api/") ||
-                    lower.Contains("api.") ||
-                    lower.Contains("/ajax/") ||
-                    lower.Contains("ajax.php") ||
-                    lower.Contains("zenders") ||
+                    path.EndsWith("/json") ||
+                    path.Contains("/api/") ||
+                    host.StartsWith("api.") ||
+                    host.Contains(".api.") ||
+                    path.Contains("/ajax/") ||
+                    path.Contains("ajax.php") ||
                     lower.Contains("stations.json") ||
-                    lower.Contains("channels.json") ||
-                    lower.Contains("playlist.json");
+                    lower.Contains("channels.json");
 
                 if (looksLikeJsonOrApi)
                 {

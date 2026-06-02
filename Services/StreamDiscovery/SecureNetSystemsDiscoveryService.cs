@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 
 namespace RadioApp.Services.StreamDiscovery
 {
-    internal class SecureNetSystemsDiscoveryService
+    public class SecureNetSystemsDiscoveryService
     {
         private const int SecureNetFallbackMaxIceServerNumber = 99;
         private const int SecureNetFallbackProbeTimeoutSeconds = 6;

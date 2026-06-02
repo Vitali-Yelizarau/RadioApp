@@ -162,6 +162,7 @@
     <Compile Include="Services\RadioStreamInfoService.cs" />
     <Compile Include="Models\StationWindowMode.cs" />
     <Compile Include="Services\RadioDatabaseService.cs" />
+    <Compile Include="Services\StreamDiscovery\InternetRadioDirectoryDiscoveryService.cs" />
     <Compile Include="Services\StreamDiscovery\StreamCandidateFilter.cs" />
     <Compile Include="Services\StreamDiscovery\StreamUrlExtractor.cs" />
     <Compile Include="Services\StreamDiscovery\StreamCandidateCollector.cs" />

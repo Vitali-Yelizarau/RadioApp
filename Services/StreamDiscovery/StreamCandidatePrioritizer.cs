@@ -69,6 +69,15 @@ namespace RadioApp.Services.StreamDiscovery
                 result.Reason += "bitrate-from-url;";
             }
 
+            if (lower.Contains("_hd") ||
+                lower.Contains("-hd") ||
+                lower.Contains("/hd") ||
+                lower.Contains("hd/"))
+            {
+                result.Score += 80;
+                result.Reason += "hd-hint;";
+            }
+
             // Deutschland.fm / Antenne Bayern real stream hosts.
             // ВАЖНО: dist=deutschlandfm сам по себе НЕ является признаком stream URL.
             if (lower.Contains("mp3channels.webradio.") ||

@@ -2,7 +2,7 @@
 
 namespace RadioApp.Services.StreamDiscovery
 {
-    internal class StreamCandidateEvaluation
+    public class StreamCandidateEvaluation
     {
         public string Url { get; set; }
         public int Score { get; set; }

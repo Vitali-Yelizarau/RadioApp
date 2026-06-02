@@ -1,5 +1,6 @@
 ﻿using RadioApp.Models;
 using RadioApp.Services;
+using RadioApp.Services.StreamDiscovery;
 using Serilog;
 using System;
 using System.Linq;
@@ -116,6 +117,7 @@ namespace RadioApp
         public AddStationWindow(MediaItem item)
         {
             InitializeComponent();
+
             _mode = StationWindowMode.Edit;
             _editingItem = item ?? throw new ArgumentNullException(nameof(item));
 

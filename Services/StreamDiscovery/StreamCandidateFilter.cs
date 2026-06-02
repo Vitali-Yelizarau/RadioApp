@@ -31,6 +31,14 @@ namespace RadioApp.Services
 
             string lower = url.ToLowerInvariant();
 
+            if (lower.Contains("cdn-cms.tunein.com/switch/") ||
+                lower.Contains("cdn-cms.tunein.com/boost/") ||
+                lower.Contains("tunein_switch_intro") ||
+                lower.Contains("tunein_switch_outro"))
+            {
+                return true;
+            }
+
             return lower.Contains("/programs/file/listen/")
                 || lower.Contains("/file/listen/")
                 || lower.Contains("/podcast/")
@@ -65,13 +73,47 @@ namespace RadioApp.Services
         }
         public bool IsPossiblePlayerPageUrl(string url)
         {
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                return false;
+            }
+
+            if (!Uri.TryCreate(url, UriKind.Absolute, out Uri uri))
+            {
+                return false;
+            }
+
             string lower = url.ToLowerInvariant();
+            string path = uri.AbsolutePath.ToLowerInvariant();
+
+            if (IsDefinitelyNotTextUrl(url))
+            {
+                return false;
+            }
+
+            /*
+             * API endpoints are not player pages.
+             * They can be checked by JSON/API logic, but we should not recursively parse them
+             * as HTML pages, otherwise we keep downloading the same JS/API links again and again.
+             */
+            if (path.Contains("/api/") ||
+                path.StartsWith("/api") ||
+                lower.Contains(".json") ||
+                lower.Contains(".m3u") ||
+                lower.Contains(".pls") ||
+                lower.EndsWith(".js") ||
+                lower.Contains(".js?") ||
+                lower.EndsWith(".css") ||
+                lower.Contains(".css?"))
+            {
+                return false;
+            }
 
             return lower.Contains("player")
                 || lower.Contains("play.")
-                || lower.Contains("/play")
-                || lower.Contains("listen")
-                || lower.Contains("online");
+                || path.Contains("/play")
+                || path.Contains("/listen")
+                || path.Contains("/online");
         }
 
         public bool IsPossibleStreamUrl(string url)
@@ -172,6 +214,23 @@ namespace RadioApp.Services
                 return true;
             }
 
+            /*
+             * M3U / PLS are playlist files.
+             * They are text and must be downloaded so we can extract real stream URLs from them.
+             */
+            if (path.EndsWith(".m3u") ||
+                path.EndsWith(".pls") ||
+                lower.Contains(".m3u?") ||
+                lower.Contains(".pls?") ||
+                lower.Contains("/api/m3u/"))
+            {
+                return false;
+            }
+
+            /*
+             * Real live streams should not be downloaded as text.
+             * They should be checked by RadioStreamInfoService via headers.
+             */
             if (IsPossibleStreamUrl(url))
             {
                 return true;
@@ -197,49 +256,101 @@ namespace RadioApp.Services
                 return true;
             }
 
-
             if (!Uri.TryCreate(url, UriKind.Absolute, out Uri uri))
             {
                 return true;
             }
 
             string lower = url.ToLowerInvariant();
+            string host = uri.Host.ToLowerInvariant();
             string path = uri.AbsolutePath.ToLowerInvariant();
 
-            if (lower.Contains("mp3channels.webradio.") ||
-                lower.Contains(".webradio.antenne.de"))
+            /*
+             * radio.net / radio.dk / radio.at station pages are catalog pages,
+             * not playable stream URLs.
+             */
+            if ((host.Equals("www.radio.net", StringComparison.OrdinalIgnoreCase) ||
+                 host.Equals("radio.net", StringComparison.OrdinalIgnoreCase) ||
+                 host.Equals("www.radio.dk", StringComparison.OrdinalIgnoreCase) ||
+                 host.Equals("radio.dk", StringComparison.OrdinalIgnoreCase) ||
+                 host.Equals("www.radio.at", StringComparison.OrdinalIgnoreCase) ||
+                 host.Equals("radio.at", StringComparison.OrdinalIgnoreCase) ||
+                 host.Equals("www.radio.de", StringComparison.OrdinalIgnoreCase) ||
+                 host.Equals("radio.de", StringComparison.OrdinalIgnoreCase)) &&
+                path.StartsWith("/s/"))
             {
-                return false;
+                return true;
             }
 
-            if (uri.Host.Equals("www.deutschland.fm", StringComparison.OrdinalIgnoreCase) ||
-                uri.Host.Equals("deutschland.fm", StringComparison.OrdinalIgnoreCase))
+            /*
+             * TuneIn radio pages are pages, not streams.
+             */
+            if ((host.Equals("tunein.com", StringComparison.OrdinalIgnoreCase) ||
+                 host.Equals("www.tunein.com", StringComparison.OrdinalIgnoreCase)) &&
+                path.StartsWith("/radio/"))
             {
-                if (path.Contains("mp3") ||
-                    path.Contains("stream") ||
-                    path.Contains("icecast") ||
-                    path.StartsWith("/radio/"))
-                {
-                    return true;
-                }
+                return true;
             }
 
-            return path.EndsWith(".png")
-                || path.EndsWith(".jpg")
-                || path.EndsWith(".jpeg")
-                || path.EndsWith(".gif")
-                || path.EndsWith(".svg")
-                || path.EndsWith(".webp")
-                || path.EndsWith(".css")
-                || path.EndsWith(".ico")
-                || lower.Contains("/css/")
-                || lower.Contains("/image/")
-                || lower.Contains("/images/")
-                || lower.Contains("/assets/images/")
-                || lower.Contains("recaptcha")
-                || lower.Contains("googlesyndication")
-                || lower.Contains("googleapis.com/json")
-                || lower.Contains("accuweather");
+            /*
+             * TuneIn service sounds. These are valid MP3 files, but not radio streams.
+             */
+            if (lower.Contains("cdn-cms.tunein.com/switch/") ||
+                lower.Contains("cdn-cms.tunein.com/boost/") ||
+                lower.Contains("tunein_switch_intro") ||
+                lower.Contains("tunein_switch_outro"))
+            {
+                return true;
+            }
+
+            /*
+             * Static assets.
+             */
+            if (lower.EndsWith(".png") ||
+                lower.EndsWith(".jpg") ||
+                lower.EndsWith(".jpeg") ||
+                lower.EndsWith(".gif") ||
+                lower.EndsWith(".svg") ||
+                lower.EndsWith(".webp") ||
+                lower.EndsWith(".css") ||
+                lower.EndsWith(".ico") ||
+                lower.EndsWith(".woff") ||
+                lower.EndsWith(".woff2") ||
+                lower.EndsWith(".ttf"))
+            {
+                return true;
+            }
+
+            if (lower.Contains("/image/") ||
+                lower.Contains("/images/") ||
+                lower.Contains("/static/image/") ||
+                lower.Contains("/assets/images/") ||
+                lower.Contains("station-images-prod.radio-assets.com"))
+            {
+                return true;
+            }
+
+            /*
+             * Web pages / app pages that often contain "radio", "stream", "live",
+             * but are not stream URLs.
+             */
+            if (host.Contains("facebook.com") ||
+                host.Contains("instagram.com") ||
+                host.Contains("twitter.com") ||
+                host.Contains("x.com") ||
+                host.Contains("linkedin.com") ||
+                host.Contains("youtube.com") ||
+                host.Contains("google.com") ||
+                host.Contains("googletagmanager.com") ||
+                host.Contains("googleadservices.com") ||
+                host.Contains("doubleclick.net") ||
+                host.Contains("cookielaw.org") ||
+                host.Contains("usercentrics.eu"))
+            {
+                return true;
+            }
+
+            return false;
         }
     }
 }
