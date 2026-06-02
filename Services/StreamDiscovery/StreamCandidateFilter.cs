@@ -46,6 +46,22 @@ namespace RadioApp.Services
                 return true;
             }
 
+            /*
+             * TuneIn embed/service audio files.
+             * These are valid MP3 files, but they are NOT radio streams.
+             */
+            if (lower.Contains("cdn-embed.tunein.com/resources/media/blank.mp3") ||
+                lower.Contains("cdn-embed.tunein.com/subscriptionrequired") ||
+                lower.Contains("cdn-embed.tunein.com/subscriptionrequired.") ||
+                lower.Contains("cdn-cms.tunein.com/switch/") ||
+                lower.Contains("cdn-cms.tunein.com/boost/") ||
+                lower.Contains("tunein_switch_intro") ||
+                lower.Contains("tunein_switch_outro"))
+            {
+                return true;
+            }
+
+
             return lower.Contains("/programs/file/listen/")
                 || lower.Contains("/file/listen/")
                 || lower.Contains("/podcast/")
@@ -139,6 +155,24 @@ namespace RadioApp.Services
             string host = uri.Host.ToLowerInvariant();
             string path = uri.AbsolutePath.ToLowerInvariant();
 
+            bool isStationPlaylistStream =
+                host.EndsWith("stationplaylist.com", StringComparison.OrdinalIgnoreCase) &&
+                (
+                    !uri.IsDefaultPort ||
+                    path.Contains("/stream") ||
+                    path.Contains("/;") ||
+                    path.EndsWith(".m3u") ||
+                    path.EndsWith(".pls") ||
+                    path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries).Length >= 1
+                );
+
+            bool isRcastDirectStream =
+                host.Equals("stream.rcast.net", StringComparison.OrdinalIgnoreCase) ||
+                (
+                    host.Equals("players.rcast.net", StringComparison.OrdinalIgnoreCase) &&
+                    path.StartsWith("/stream/")
+                );
+
             bool isMyRadioStreamShoutcastEndpoint =
                     host.EndsWith(".myradiostream.com") &&
                     (
@@ -178,9 +212,12 @@ namespace RadioApp.Services
                 || host.Contains(".stream.")
                 || host.Contains(".streams.")
                 || host.Contains("stream.")
-                || isMyRadioStreamShoutcastEndpoint
                 || host.Contains(".stream.vip")
                 || host.EndsWith("stream.vip")
+
+                || isMyRadioStreamShoutcastEndpoint
+                || isStationPlaylistStream
+                || isRcastDirectStream
 
                 || lower.Contains("tritondigital")
                 || lower.Contains("streamguys")
@@ -365,6 +402,42 @@ namespace RadioApp.Services
                 lower.Contains("tunein_switch_outro"))
             {
                 return true;
+            }
+
+            /*
+             * TuneIn embed/service audio files.
+             * These are valid MP3 files, but they are NOT radio streams.
+             */
+            if (lower.Contains("cdn-embed.tunein.com/resources/media/blank.mp3") ||
+                lower.Contains("cdn-embed.tunein.com/subscriptionrequired") ||
+                lower.Contains("cdn-embed.tunein.com/subscriptionrequired.") ||
+                lower.Contains("cdn-cms.tunein.com/switch/") ||
+                lower.Contains("cdn-cms.tunein.com/boost/") ||
+                lower.Contains("tunein_switch_intro") ||
+                lower.Contains("tunein_switch_outro"))
+            {
+                return true;
+            }
+
+            /*
+             * TuneIn embed/app endpoints are not directly playable streams.
+             */
+            if (host.Equals("stream.platform.prod.us-west-2.tunein.com", StringComparison.OrdinalIgnoreCase) ||
+                host.Equals("api.platform.prod.us-west-2.tunein.com", StringComparison.OrdinalIgnoreCase) ||
+                host.Equals("api.radiotime.com", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (host.Equals("cdn-embed.tunein.com", StringComparison.OrdinalIgnoreCase))
+            {
+                if (path.Contains("/$defs/") ||
+                    path.Contains("streamtitle") ||
+                    path.Contains("livemaxlatencyduration") ||
+                    path.Contains("/resources/media/"))
+                {
+                    return true;
+                }
             }
 
             /*

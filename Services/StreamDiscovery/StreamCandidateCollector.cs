@@ -174,6 +174,8 @@ namespace RadioApp.Services.StreamDiscovery
 
                 Log.Debug("Checking possible player page: {PlayerPage}", playerPage);
 
+                candidates.AddRange(BuildRcastCandidatesFromPlayerUrl(playerPage));
+
                 string playerHtml = await _httpTextDownloadService.DownloadTextSafeAsync(
                     playerPage,
                     cancellationToken
@@ -909,6 +911,60 @@ namespace RadioApp.Services.StreamDiscovery
             }
 
             return string.Empty;
+        }
+
+        private List<string> BuildRcastCandidatesFromPlayerUrl(string playerPageUrl)
+        {
+            var candidates = new List<string>();
+
+            if (string.IsNullOrWhiteSpace(playerPageUrl))
+            {
+                return candidates;
+            }
+
+            if (!Uri.TryCreate(playerPageUrl, UriKind.Absolute, out Uri uri))
+            {
+                return candidates;
+            }
+
+            string host = uri.Host.ToLowerInvariant();
+            string path = uri.AbsolutePath.Trim('/');
+
+            if (!host.Equals("players.rcast.net", StringComparison.OrdinalIgnoreCase))
+            {
+                return candidates;
+            }
+
+            string[] segments = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+
+            if (segments.Length == 0)
+            {
+                return candidates;
+            }
+
+            string stationId = segments[segments.Length - 1];
+
+            if (string.IsNullOrWhiteSpace(stationId))
+            {
+                return candidates;
+            }
+
+            if (!stationId.All(char.IsDigit))
+            {
+                return candidates;
+            }
+
+            /*
+             * RCast commonly exposes direct SSL stream URLs by station id.
+             * HTTP validation will decide which one is actually playable.
+             */
+            candidates.Add("https://stream.rcast.net/" + stationId);
+            candidates.Add("https://players.rcast.net/stream/" + stationId + ".mp3");
+
+            return candidates
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
     }
 }

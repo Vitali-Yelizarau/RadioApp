@@ -78,6 +78,28 @@ namespace RadioApp.Services.StreamDiscovery
                 result.Reason += "hd-hint;";
             }
 
+            if (host.EndsWith("stationplaylist.com", StringComparison.OrdinalIgnoreCase) &&
+            (
+                !uri.IsDefaultPort ||
+                path.Contains("/stream") ||
+                path.Contains("/;") ||
+                path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries).Length >= 1
+            ))
+            {
+                result.Score += 850;
+                result.Reason += "stationplaylist-icecast-endpoint;";
+            }
+
+            if (host.Equals("stream.rcast.net", StringComparison.OrdinalIgnoreCase) ||
+                (
+                    host.Equals("players.rcast.net", StringComparison.OrdinalIgnoreCase) &&
+                    path.StartsWith("/stream/")
+                ))
+            {
+                result.Score += 750;
+                result.Reason += "rcast-direct-stream;";
+            }
+
             bool isMyRadioStreamShoutcastEndpoint =
                     host.EndsWith(".myradiostream.com") &&
                     (

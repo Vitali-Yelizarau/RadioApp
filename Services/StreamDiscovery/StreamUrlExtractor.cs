@@ -67,8 +67,7 @@ namespace RadioApp.Services.StreamDiscovery
             url = WebUtility.HtmlDecode(url);
             url = url.Replace("&amp;", "&");
 
-            url = url.Trim()
-                     .TrimEnd('.', ',', ';', ')', ']', '}', '"', '\'');
+            url = url.Trim().TrimEnd('.', ',', ';', ')', ']', '}', '"', '\'', '”', '“', '’', '‘');
 
             return url;
         }
