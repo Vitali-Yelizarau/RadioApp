@@ -72,6 +72,8 @@ namespace RadioApp.Services.StreamDiscovery
                     continue;
                 }
 
+                candidates.AddRange(ExtractMyRadioStreamUrlsFromText(content));
+
                 candidates.AddRange(_urlExtractor.ExtractStreamLikeUrls(content, apiUrl));
                 candidates.AddRange(_urlExtractor.ExtractStreamUrlsFromStructuredText(content, apiUrl));
                 candidates.AddRange(ExtractDeutschlandFmStreamCandidatesFromText(content));
@@ -112,6 +114,8 @@ namespace RadioApp.Services.StreamDiscovery
                     continue;
                 }
 
+                candidates.AddRange(ExtractMyRadioStreamUrlsFromText(scriptContent));
+
                 candidates.AddRange(_urlExtractor.ExtractStreamLikeUrls(scriptContent, scriptUrl));
                 candidates.AddRange(_urlExtractor.ExtractStreamUrlsFromStructuredText(scriptContent, scriptUrl));
                 candidates.AddRange(ExtractDeutschlandFmStreamCandidatesFromText(scriptContent));
@@ -133,6 +137,7 @@ namespace RadioApp.Services.StreamDiscovery
             candidates.AddRange(_urlExtractor.ExtractStreamLikeUrls(html, pageUrl));
             candidates.AddRange(_urlExtractor.ExtractStreamUrlsFromStructuredText(html, pageUrl));
             candidates.AddRange(ExtractDeutschlandFmStreamCandidatesFromText(html));
+            candidates.AddRange(ExtractMyRadioStreamUrlsFromText(html));
 
             candidates.AddRange(await ExtractCandidatesFromPlaylistUrlsAsync(
                 html,
@@ -154,6 +159,11 @@ namespace RadioApp.Services.StreamDiscovery
 
             var playerPages = _urlExtractor.ExtractPossiblePlayerPages(html, pageUrl)
                              .Concat(_urlExtractor.ExtractIframeUrls(html, pageUrl))
+                             .Select(_urlExtractor.CleanUrl)
+                             .Where(x => !string.IsNullOrWhiteSpace(x))
+                             .Where(x => Uri.TryCreate(x, UriKind.Absolute, out Uri uri) &&
+                                         (uri.Scheme.Equals("http", StringComparison.OrdinalIgnoreCase) ||
+                                          uri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase)))
                              .Distinct(StringComparer.OrdinalIgnoreCase)
                              .Take(MaxPlayerPagesToCheck)
                              .ToList();
@@ -174,9 +184,16 @@ namespace RadioApp.Services.StreamDiscovery
                     continue;
                 }
 
+                candidates.AddRange(ExtractMyRadioStreamUrlsFromText(playerHtml));
+
                 candidates.AddRange(_urlExtractor.ExtractStreamLikeUrls(playerHtml, playerPage));
                 candidates.AddRange(_urlExtractor.ExtractStreamUrlsFromStructuredText(playerHtml, playerPage));
                 candidates.AddRange(ExtractDeutschlandFmStreamCandidatesFromText(playerHtml));
+
+                candidates.AddRange(await ExtractMyRadioStreamCandidatesFromEmbedPageAsync(
+                    playerPage,
+                    cancellationToken
+                ));
 
                 candidates.AddRange(await ExtractCandidatesFromJavaScriptFilesAsync(
                     playerHtml,
@@ -214,6 +231,7 @@ namespace RadioApp.Services.StreamDiscovery
                 candidates.AddRange(_urlExtractor.ExtractStreamLikeUrls(secureNetHtml, secureNetPlayerPage));
                 candidates.AddRange(_urlExtractor.ExtractStreamUrlsFromStructuredText(secureNetHtml, secureNetPlayerPage));
                 candidates.AddRange(ExtractDeutschlandFmStreamCandidatesFromText(secureNetHtml));
+                candidates.AddRange(ExtractMyRadioStreamUrlsFromText(secureNetHtml));
 
                 candidates.AddRange(await ExtractCandidatesFromJavaScriptFilesAsync(
                     secureNetHtml,
@@ -720,6 +738,177 @@ namespace RadioApp.Services.StreamDiscovery
                 || lower.Contains(".m3u8?")
                 || lower.Contains(".pls?")
                 || lower.Contains("/api/m3u/");
+        }
+
+        private List<string> ExtractMyRadioStreamUrlsFromText(string text)
+        {
+            var result = new List<string>();
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return result;
+            }
+
+            string normalized = text
+                .Replace("\\/", "/")
+                .Replace("&amp;", "&");
+
+            var directRegex = new System.Text.RegularExpressions.Regex(
+                @"https?:\/\/s\d+\.myradiostream\.com(?::\d+)?\/(?:\d+\/)?;[^""'<>\s\\]*",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase
+            );
+
+            foreach (System.Text.RegularExpressions.Match match in directRegex.Matches(normalized))
+            {
+                result.Add(_urlExtractor.CleanUrl(match.Value));
+            }
+
+            /*
+             * Sometimes player JSON/JS contains host + port separately.
+             */
+            var hostRegex = new System.Text.RegularExpressions.Regex(
+                @"s\d+\.myradiostream\.com",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase
+            );
+
+            var portRegex = new System.Text.RegularExpressions.Regex(
+                @"""?(?:port|server_port|streampath|stream_port)""?\s*[:=]\s*""?(?<port>\d{3,6})",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase
+            );
+
+            foreach (System.Text.RegularExpressions.Match hostMatch in hostRegex.Matches(normalized))
+            {
+                foreach (System.Text.RegularExpressions.Match portMatch in portRegex.Matches(normalized))
+                {
+                    string host = hostMatch.Value;
+                    string port = portMatch.Groups["port"].Value;
+
+                    if (!string.IsNullOrWhiteSpace(host) &&
+                        !string.IsNullOrWhiteSpace(port))
+                    {
+                        result.Add("https://" + host + ":" + port + "/;?type=http");
+                        result.Add("https://" + host + "/" + port + "/;?type=http");
+                    }
+                }
+            }
+
+            return result
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private async Task<List<string>> ExtractMyRadioStreamCandidatesFromEmbedPageAsync(
+    string playerPageUrl,
+    CancellationToken cancellationToken)
+        {
+            var candidates = new List<string>();
+
+            if (string.IsNullOrWhiteSpace(playerPageUrl))
+            {
+                return candidates;
+            }
+
+            if (!Uri.TryCreate(playerPageUrl, UriKind.Absolute, out Uri uri))
+            {
+                return candidates;
+            }
+
+            string host = uri.Host.ToLowerInvariant();
+            string path = uri.AbsolutePath.ToLowerInvariant();
+
+            if (!host.Equals("myradiostream.com", StringComparison.OrdinalIgnoreCase) ||
+                !path.Contains("/embed/") ||
+                !path.EndsWith(".php"))
+            {
+                return candidates;
+            }
+
+            string stationName = ExtractQueryParameterValue(playerPageUrl, "s");
+
+            if (string.IsNullOrWhiteSpace(stationName))
+            {
+                return candidates;
+            }
+
+            string jsonUrl =
+                uri.Scheme +
+                "://" +
+                uri.Host +
+                "/embed/json.php?s=" +
+                Uri.EscapeDataString(stationName) +
+                "&nocache=" +
+                DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+            Log.Debug(
+                "Downloading MyRadioStream embed JSON URL: {JsonUrl}",
+                jsonUrl
+            );
+
+            string jsonText = await _httpTextDownloadService.DownloadTextSafeAsync(
+                jsonUrl,
+                cancellationToken
+            );
+
+            if (string.IsNullOrWhiteSpace(jsonText))
+            {
+                return candidates;
+            }
+
+            candidates.AddRange(ExtractMyRadioStreamUrlsFromText(jsonText));
+            candidates.AddRange(_urlExtractor.ExtractStreamLikeUrls(jsonText, jsonUrl));
+            candidates.AddRange(_urlExtractor.ExtractStreamUrlsFromStructuredText(jsonText, jsonUrl));
+
+            return candidates
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(_urlExtractor.CleanUrl)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private string ExtractQueryParameterValue(string url, string parameterName)
+        {
+            if (string.IsNullOrWhiteSpace(url) ||
+                string.IsNullOrWhiteSpace(parameterName))
+            {
+                return string.Empty;
+            }
+
+            int questionIndex = url.IndexOf('?');
+
+            if (questionIndex < 0 || questionIndex >= url.Length - 1)
+            {
+                return string.Empty;
+            }
+
+            string query = url.Substring(questionIndex + 1);
+
+            string[] parts = query.Split('&');
+
+            foreach (string part in parts)
+            {
+                if (string.IsNullOrWhiteSpace(part))
+                {
+                    continue;
+                }
+
+                int equalsIndex = part.IndexOf('=');
+
+                if (equalsIndex <= 0)
+                {
+                    continue;
+                }
+
+                string key = part.Substring(0, equalsIndex);
+                string value = part.Substring(equalsIndex + 1);
+
+                if (key.Equals(parameterName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return Uri.UnescapeDataString(value.Replace("+", " "));
+                }
+            }
+
+            return string.Empty;
         }
     }
 }

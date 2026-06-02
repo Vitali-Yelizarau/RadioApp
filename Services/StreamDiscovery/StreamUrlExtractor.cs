@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Text.RegularExpressions;
 
 namespace RadioApp.Services.StreamDiscovery
@@ -63,10 +64,13 @@ namespace RadioApp.Services.StreamDiscovery
                 return string.Empty;
             }
 
-            return url
-                .Trim()
-                .TrimEnd(',', ';', ')', ']', '}')
-                .Replace("\\/", "/");
+            url = WebUtility.HtmlDecode(url);
+            url = url.Replace("&amp;", "&");
+
+            url = url.Trim()
+                     .TrimEnd('.', ',', ';', ')', ']', '}', '"', '\'');
+
+            return url;
         }
         public string NormalizeUrl(string url, string baseUrl)
         {
@@ -387,16 +391,18 @@ namespace RadioApp.Services.StreamDiscovery
                  * Those made the extractor too greedy before.
                  */
                 bool looksLikeJsonOrApi =
-                    lower.EndsWith(".json") ||
-                    lower.Contains(".json?") ||
-                    path.EndsWith("/json") ||
-                    path.Contains("/api/") ||
-                    host.StartsWith("api.") ||
-                    host.Contains(".api.") ||
-                    path.Contains("/ajax/") ||
-                    path.Contains("ajax.php") ||
-                    lower.Contains("stations.json") ||
-                    lower.Contains("channels.json");
+                        lower.EndsWith(".json") ||
+                        lower.Contains(".json?") ||
+                        path.EndsWith("/json") ||
+                        path.EndsWith("/json.php") ||
+                        path.Contains("/json.php") ||
+                        path.Contains("/api/") ||
+                        host.StartsWith("api.") ||
+                        host.Contains(".api.") ||
+                        path.Contains("/ajax/") ||
+                        path.Contains("ajax.php") ||
+                        lower.Contains("stations.json") ||
+                        lower.Contains("channels.json");
 
                 if (looksLikeJsonOrApi)
                 {

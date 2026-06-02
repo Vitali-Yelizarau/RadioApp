@@ -39,6 +39,13 @@ namespace RadioApp.Services
                 return true;
             }
 
+            if (lower.Contains("myradiostream.com/assets/mp3/test.mp3") ||
+                lower.Contains("myradiostream.com/embed/assets/mp3/test.mp3") ||
+                lower.EndsWith("/assets/mp3/test.mp3"))
+            {
+                return true;
+            }
+
             return lower.Contains("/programs/file/listen/")
                 || lower.Contains("/file/listen/")
                 || lower.Contains("/podcast/")
@@ -132,6 +139,14 @@ namespace RadioApp.Services
             string host = uri.Host.ToLowerInvariant();
             string path = uri.AbsolutePath.ToLowerInvariant();
 
+            bool isMyRadioStreamShoutcastEndpoint =
+                    host.EndsWith(".myradiostream.com") &&
+                    (
+                        !uri.IsDefaultPort ||
+                        path.Contains("/;") ||
+                        System.Text.RegularExpressions.Regex.IsMatch(path, @"^/\d+/?;")
+                    );
+
             return lower.Contains("mp3channels.webradio.")
                 || lower.Contains(".webradio.antenne.de")
 
@@ -163,6 +178,7 @@ namespace RadioApp.Services
                 || host.Contains(".stream.")
                 || host.Contains(".streams.")
                 || host.Contains("stream.")
+                || isMyRadioStreamShoutcastEndpoint
                 || host.Contains(".stream.vip")
                 || host.EndsWith("stream.vip")
 
@@ -191,6 +207,55 @@ namespace RadioApp.Services
             string host = uri.Host.ToLowerInvariant();
             string path = uri.AbsolutePath.ToLowerInvariant();
 
+            /*
+             * MyRadioStream JSON endpoint is a real text/API resource.
+             * It can contain the real Shoutcast host/port for the embedded player.
+             *
+             * Examples:
+             * https://myradiostream.com/json.php?s=MetalExpressRadio&nocache=...
+             * https://myradiostream.com/embed/json.php?s=MetalExpressRadio&nocache=...
+             */
+            if (host.Equals("myradiostream.com", StringComparison.OrdinalIgnoreCase) &&
+                path.EndsWith("/json.php"))
+            {
+                return false;
+            }
+
+            /*
+             * MyRadioStream embed pages are HTML/PHP player pages.
+             * They may contain the real Shoutcast stream URL.
+             *
+             * Example:
+             * https://myradiostream.com/embed/basic.php?s=MetalExpressRadio&btnstyle=circle
+             */
+            if (host.Equals("myradiostream.com", StringComparison.OrdinalIgnoreCase) &&
+                path.Contains("/embed/") &&
+                path.EndsWith(".php"))
+            {
+                return false;
+            }
+
+            /*
+             * M3U / PLS are playlist files.
+             * They are text and must be downloaded so we can extract real stream URLs from them.
+             *
+             * Keep this block BEFORE IsPossibleStreamUrl(url), because some playlist/API URLs
+             * may also look stream-like.
+             */
+            if (path.EndsWith(".m3u") ||
+                path.EndsWith(".m3u8") ||
+                path.EndsWith(".pls") ||
+                lower.Contains(".m3u?") ||
+                lower.Contains(".m3u8?") ||
+                lower.Contains(".pls?") ||
+                lower.Contains("/api/m3u/"))
+            {
+                return false;
+            }
+
+            /*
+             * Static assets are not useful text sources for stream discovery.
+             */
             if (lower.EndsWith(".png") ||
                 lower.EndsWith(".jpg") ||
                 lower.EndsWith(".jpeg") ||
@@ -215,19 +280,6 @@ namespace RadioApp.Services
             }
 
             /*
-             * M3U / PLS are playlist files.
-             * They are text and must be downloaded so we can extract real stream URLs from them.
-             */
-            if (path.EndsWith(".m3u") ||
-                path.EndsWith(".pls") ||
-                lower.Contains(".m3u?") ||
-                lower.Contains(".pls?") ||
-                lower.Contains("/api/m3u/"))
-            {
-                return false;
-            }
-
-            /*
              * Real live streams should not be downloaded as text.
              * They should be checked by RadioStreamInfoService via headers.
              */
@@ -236,6 +288,9 @@ namespace RadioApp.Services
                 return true;
             }
 
+            /*
+             * Known non-useful external resources.
+             */
             if (host.Contains("googlesyndication") ||
                 host.Contains("doubleclick") ||
                 host.Contains("google-analytics") ||
@@ -264,6 +319,15 @@ namespace RadioApp.Services
             string lower = url.ToLowerInvariant();
             string host = uri.Host.ToLowerInvariant();
             string path = uri.AbsolutePath.ToLowerInvariant();
+
+
+            if (lower.Contains("myradiostream.com/assets/mp3/test.mp3") ||
+                lower.Contains("myradiostream.com/embed/assets/mp3/test.mp3") ||
+                lower.EndsWith("/assets/mp3/test.mp3"))
+            {
+                return true;
+            }
+
 
             /*
              * radio.net / radio.dk / radio.at station pages are catalog pages,
