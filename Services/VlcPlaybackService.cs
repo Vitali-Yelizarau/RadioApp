@@ -397,5 +397,25 @@ namespace RadioApp.Services
                 // Ignore VLC log write errors.
             }
         }
+
+        public void SetVolume(int volume)
+        {
+            if (volume < 0)
+            {
+                volume = 0;
+            }
+
+            if (volume > 100)
+            {
+                volume = 100;
+            }
+
+            if (_mediaPlayer == null)
+            {
+                return;
+            }
+
+            _mediaPlayer.Volume = volume;
+        }
     }
 }

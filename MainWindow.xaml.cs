@@ -3,7 +3,6 @@ using RadioApp.Models;
 using RadioApp.Services;
 using Serilog;
 using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -285,6 +284,18 @@ namespace RadioApp
             });
         }
 
+        private void VolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            int volume = (int)e.NewValue;
+
+            if (VolumeValueTextBlock != null)
+            {
+                VolumeValueTextBlock.Text = volume + "%";
+            }
+
+            _playbackService.SetVolume(volume);
+        }
+
         private void PlaybackService_PlaybackStarted(object sender, EventArgs e)
         {
             Dispatcher.Invoke(() =>
@@ -421,6 +432,8 @@ namespace RadioApp
                 );
 
                 await _playbackService.PlayAsync(station.StreamUrl);
+
+                _playbackService.SetVolume((int)VolumeSlider.Value);
 
                 _currentlyPlayingStation = station;
                 _isPlaying = true;

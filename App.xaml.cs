@@ -57,6 +57,7 @@ namespace RadioApp
                 .WriteTo.File(
                     logFilePath,
                     rollingInterval: RollingInterval.Day,
+                    fileSizeLimitBytes: 50 * 1024 * 1024, // 50 MB
                     retainedFileCountLimit: 14,
                     shared: true,
                     outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}"

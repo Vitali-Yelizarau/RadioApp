@@ -57,7 +57,7 @@ namespace RadioApp.Services
         {
             using (var db = new RadioDbContext())
             {
-                return await  db.MediaItems
+                return await db.MediaItems
                                 .Where(x => x.IsEnabled)
                                 .OrderBy(x => x.SortOrder)
                                 .ThenBy(x => x.Title)
