@@ -78,6 +78,17 @@ namespace RadioApp.Services.StreamDiscovery
                 result.Reason += "hd-hint;";
             }
 
+            if (host.EndsWith(".datacenter.by", StringComparison.OrdinalIgnoreCase) ||
+                host.Equals("datacenter.by", StringComparison.OrdinalIgnoreCase))
+            {
+                if (path.StartsWith("/stream/", StringComparison.OrdinalIgnoreCase) ||
+                    host.StartsWith("stream", StringComparison.OrdinalIgnoreCase))
+                {
+                    result.Score += 180;
+                    result.Reason += "datacenter-by-stream;";
+                }
+            }
+
             if (host.EndsWith("stationplaylist.com", StringComparison.OrdinalIgnoreCase) &&
             (
                 !uri.IsDefaultPort ||

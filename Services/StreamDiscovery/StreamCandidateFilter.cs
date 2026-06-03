@@ -150,6 +150,11 @@ namespace RadioApp.Services
                 return false;
             }
 
+            if (IsDataCenterByStreamUrl(uri))
+            {
+                return true;
+            }
+
             string lower = url.ToLowerInvariant();
             string host = uri.Host.ToLowerInvariant();
             string path = uri.AbsolutePath.ToLowerInvariant();
@@ -227,6 +232,44 @@ namespace RadioApp.Services
                 || lower.Contains("envisionwise")
                 || lower.Contains("playerservices")
                 || lower.Contains("amperwave");
+        }
+
+        private bool IsDataCenterByStreamUrl(Uri uri)
+        {
+            if (uri == null)
+            {
+                return false;
+            }
+
+            string host = uri.Host.ToLowerInvariant();
+            string path = uri.AbsolutePath.ToLowerInvariant();
+
+            if (!host.EndsWith(".datacenter.by") &&
+                !host.Equals("datacenter.by", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (path.StartsWith("/stream/"))
+            {
+                return true;
+            }
+
+            /*
+             * Centova-style datacenter.by streams:
+             * https://stream2.datacenter.by/trkbrest
+             * https://stream2.datacenter.by/something
+             */
+            if (host.StartsWith("stream") &&
+                path.Length > 1 &&
+                !path.Contains(".") &&
+                !path.Contains("/tunein/") &&
+                !path.Contains("/admin/"))
+            {
+                return true;
+            }
+
+            return false;
         }
         public bool IsDefinitelyNotTextUrl(string url)
         {

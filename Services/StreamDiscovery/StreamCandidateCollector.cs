@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -9,11 +10,9 @@ namespace RadioApp.Services.StreamDiscovery
 {
     public class StreamCandidateCollector
     {
-        private const int MaxJavaScriptFilesToCheck = 20;
+        private const int MaxJavaScriptFilesToCheck = 50;
         private const int MaxJsonApiUrlsToCheck = 20;
         private const int MaxPlayerPagesToCheck = 10;
-        private const int MaxScriptsToCheck = 20;
-        private const int MaxApiUrlsToCheck = 20;
 
         private readonly SecureNetSystemsDiscoveryService _secureNetSystemsDiscoveryService;
         private readonly StreamCandidateFilter _filter;
@@ -77,6 +76,7 @@ namespace RadioApp.Services.StreamDiscovery
                 candidates.AddRange(_urlExtractor.ExtractStreamLikeUrls(content, apiUrl));
                 candidates.AddRange(_urlExtractor.ExtractStreamUrlsFromStructuredText(content, apiUrl));
                 candidates.AddRange(ExtractDeutschlandFmStreamCandidatesFromText(content));
+                candidates.AddRange(ExtractDataCenterByStreamUrlsFromText(content));
             }
 
             return candidates;
@@ -94,9 +94,10 @@ namespace RadioApp.Services.StreamDiscovery
             }
 
             List<string> scriptUrls = _urlExtractor.ExtractJavaScriptUrls(html, pageUrl)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Take(MaxJavaScriptFilesToCheck)
-                .ToList();
+                                                   .Distinct(StringComparer.OrdinalIgnoreCase)
+                                                   .OrderByDescending(GetJavaScriptUrlPriorityScore)
+                                                   .Take(MaxJavaScriptFilesToCheck)
+                                                   .ToList();
 
             foreach (string scriptUrl in scriptUrls)
             {
@@ -119,6 +120,7 @@ namespace RadioApp.Services.StreamDiscovery
                 candidates.AddRange(_urlExtractor.ExtractStreamLikeUrls(scriptContent, scriptUrl));
                 candidates.AddRange(_urlExtractor.ExtractStreamUrlsFromStructuredText(scriptContent, scriptUrl));
                 candidates.AddRange(ExtractDeutschlandFmStreamCandidatesFromText(scriptContent));
+                candidates.AddRange(ExtractDataCenterByStreamUrlsFromText(scriptContent));
             }
 
             return candidates;
@@ -138,6 +140,7 @@ namespace RadioApp.Services.StreamDiscovery
             candidates.AddRange(_urlExtractor.ExtractStreamUrlsFromStructuredText(html, pageUrl));
             candidates.AddRange(ExtractDeutschlandFmStreamCandidatesFromText(html));
             candidates.AddRange(ExtractMyRadioStreamUrlsFromText(html));
+            candidates.AddRange(ExtractDataCenterByStreamUrlsFromText(html));
 
             candidates.AddRange(await ExtractCandidatesFromPlaylistUrlsAsync(
                 html,
@@ -191,6 +194,7 @@ namespace RadioApp.Services.StreamDiscovery
                 candidates.AddRange(_urlExtractor.ExtractStreamLikeUrls(playerHtml, playerPage));
                 candidates.AddRange(_urlExtractor.ExtractStreamUrlsFromStructuredText(playerHtml, playerPage));
                 candidates.AddRange(ExtractDeutschlandFmStreamCandidatesFromText(playerHtml));
+                candidates.AddRange(ExtractDataCenterByStreamUrlsFromText(playerHtml));
 
                 candidates.AddRange(await ExtractMyRadioStreamCandidatesFromEmbedPageAsync(
                     playerPage,
@@ -234,6 +238,7 @@ namespace RadioApp.Services.StreamDiscovery
                 candidates.AddRange(_urlExtractor.ExtractStreamUrlsFromStructuredText(secureNetHtml, secureNetPlayerPage));
                 candidates.AddRange(ExtractDeutschlandFmStreamCandidatesFromText(secureNetHtml));
                 candidates.AddRange(ExtractMyRadioStreamUrlsFromText(secureNetHtml));
+                candidates.AddRange(ExtractDataCenterByStreamUrlsFromText(secureNetHtml));
 
                 candidates.AddRange(await ExtractCandidatesFromJavaScriptFilesAsync(
                     secureNetHtml,
@@ -257,6 +262,123 @@ namespace RadioApp.Services.StreamDiscovery
                              .ToList();
         }
 
+        private List<string> ExtractDataCenterByStreamUrlsFromText(string text)
+        {
+            var candidates = new List<string>();
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return candidates;
+            }
+
+            string normalizedText = text
+                .Replace("\\/", "/")
+                .Replace("\\u002F", "/")
+                .Replace("&amp;", "&");
+
+            var absoluteUrlRegex = new Regex(
+                @"https?:\/\/(?:media|stream)\d*\.datacenter\.by(?::\d{2,5})?\/[a-zA-Z0-9_\-/\.]+[^""'<>\s\\)]*",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled
+            );
+
+            foreach (Match match in absoluteUrlRegex.Matches(normalizedText))
+            {
+                string candidate = CleanDataCenterByCandidate(match.Value);
+
+                if (IsDataCenterByStreamCandidate(candidate) &&
+                    !candidates.Contains(candidate, StringComparer.OrdinalIgnoreCase))
+                {
+                    Log.Information(
+                        "DataCenter.by stream candidate found. Candidate: {Candidate}",
+                        candidate
+                    );
+
+                    candidates.Add(candidate);
+                }
+            }
+
+            var protocolRelativeUrlRegex = new Regex(
+                @"(?<!:)\/\/(?:media|stream)\d*\.datacenter\.by(?::\d{2,5})?\/[a-zA-Z0-9_\-/\.]+[^""'<>\s\\)]*",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled
+            );
+
+            foreach (Match match in protocolRelativeUrlRegex.Matches(normalizedText))
+            {
+                string candidate = CleanDataCenterByCandidate("https:" + match.Value);
+
+                if (IsDataCenterByStreamCandidate(candidate) &&
+                    !candidates.Contains(candidate, StringComparer.OrdinalIgnoreCase))
+                {
+                    Log.Information(
+                        "Protocol-relative DataCenter.by stream candidate found. Candidate: {Candidate}",
+                        candidate
+                    );
+
+                    candidates.Add(candidate);
+                }
+            }
+
+            return candidates;
+        }
+
+        private string CleanDataCenterByCandidate(string candidate)
+        {
+            if (string.IsNullOrWhiteSpace(candidate))
+            {
+                return string.Empty;
+            }
+
+            return candidate
+                .Replace("\\/", "/")
+                .Replace("\\u002F", "/")
+                .Replace("&amp;", "&")
+                .Trim()
+                .TrimEnd('.', ',', ';', ')', ']', '}', '"', '\'');
+        }
+
+        private bool IsDataCenterByStreamCandidate(string candidate)
+        {
+            if (string.IsNullOrWhiteSpace(candidate))
+            {
+                return false;
+            }
+
+            if (!Uri.TryCreate(candidate, UriKind.Absolute, out Uri uri))
+            {
+                return false;
+            }
+
+            string host = uri.Host.ToLowerInvariant();
+            string path = uri.AbsolutePath.ToLowerInvariant();
+
+            if (!host.EndsWith("datacenter.by", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (path.StartsWith("/stream/", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            /*
+             * Centova-style DataCenter.by streams:
+             * https://stream2.datacenter.by/trkbrest
+             */
+            if (host.StartsWith("stream", StringComparison.OrdinalIgnoreCase) &&
+                path.Length > 1 &&
+                !path.Contains("/tunein/") &&
+                !path.EndsWith(".pls") &&
+                !path.EndsWith(".m3u") &&
+                !path.EndsWith(".m3u8") &&
+                !path.Contains("."))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
         private List<string> ExtractDeutschlandFmStreamCandidatesFromText(string text)
         {
             var candidates = new List<string>();
@@ -271,12 +393,12 @@ namespace RadioApp.Services.StreamDiscovery
                 .Replace("\\u002F", "/")
                 .Replace("&amp;", "&");
 
-            var jsonFieldRegex = new System.Text.RegularExpressions.Regex(
+            var jsonFieldRegex = new Regex(
                 @"""(?:s|jp|ios)""\s*:\s*""(?<url>https?:\/\/[^""]+)""",
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase
+                RegexOptions.IgnoreCase
             );
 
-            foreach (System.Text.RegularExpressions.Match match in jsonFieldRegex.Matches(normalizedText))
+            foreach (Match match in jsonFieldRegex.Matches(normalizedText))
             {
                 string candidate = match.Groups["url"].Value.Trim();
 
@@ -294,12 +416,12 @@ namespace RadioApp.Services.StreamDiscovery
                 }
             }
 
-            var genericUrlRegex = new System.Text.RegularExpressions.Regex(
+            var genericUrlRegex = new Regex(
                 @"https?:\/\/[^""'\s<>\\]+",
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase
+                RegexOptions.IgnoreCase
             );
 
-            foreach (System.Text.RegularExpressions.Match match in genericUrlRegex.Matches(normalizedText))
+            foreach (Match match in genericUrlRegex.Matches(normalizedText))
             {
                 string candidate = match.Value.Trim();
 
@@ -405,6 +527,8 @@ namespace RadioApp.Services.StreamDiscovery
                 {
                     continue;
                 }
+
+                candidates.AddRange(ExtractDataCenterByStreamUrlsFromText(playlistContent));
 
                 candidates.AddRange(ExtractStreamUrlsFromPlaylistContent(
                     playlistContent,
@@ -755,12 +879,12 @@ namespace RadioApp.Services.StreamDiscovery
                 .Replace("\\/", "/")
                 .Replace("&amp;", "&");
 
-            var directRegex = new System.Text.RegularExpressions.Regex(
+            var directRegex = new Regex(
                 @"https?:\/\/s\d+\.myradiostream\.com(?::\d+)?\/(?:\d+\/)?;[^""'<>\s\\]*",
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase
+                RegexOptions.IgnoreCase
             );
 
-            foreach (System.Text.RegularExpressions.Match match in directRegex.Matches(normalized))
+            foreach (Match match in directRegex.Matches(normalized))
             {
                 result.Add(_urlExtractor.CleanUrl(match.Value));
             }
@@ -768,19 +892,19 @@ namespace RadioApp.Services.StreamDiscovery
             /*
              * Sometimes player JSON/JS contains host + port separately.
              */
-            var hostRegex = new System.Text.RegularExpressions.Regex(
+            var hostRegex = new Regex(
                 @"s\d+\.myradiostream\.com",
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase
+                RegexOptions.IgnoreCase
             );
 
-            var portRegex = new System.Text.RegularExpressions.Regex(
+            var portRegex = new Regex(
                 @"""?(?:port|server_port|streampath|stream_port)""?\s*[:=]\s*""?(?<port>\d{3,6})",
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase
+                RegexOptions.IgnoreCase
             );
 
-            foreach (System.Text.RegularExpressions.Match hostMatch in hostRegex.Matches(normalized))
+            foreach (Match hostMatch in hostRegex.Matches(normalized))
             {
-                foreach (System.Text.RegularExpressions.Match portMatch in portRegex.Matches(normalized))
+                foreach (Match portMatch in portRegex.Matches(normalized))
                 {
                     string host = hostMatch.Value;
                     string port = portMatch.Groups["port"].Value;
@@ -801,8 +925,8 @@ namespace RadioApp.Services.StreamDiscovery
         }
 
         private async Task<List<string>> ExtractMyRadioStreamCandidatesFromEmbedPageAsync(
-    string playerPageUrl,
-    CancellationToken cancellationToken)
+                                            string playerPageUrl,
+                                            CancellationToken cancellationToken)
         {
             var candidates = new List<string>();
 
@@ -965,6 +1089,40 @@ namespace RadioApp.Services.StreamDiscovery
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
+        }
+
+        private int GetJavaScriptUrlPriorityScore(string scriptUrl)
+        {
+            if (string.IsNullOrWhiteSpace(scriptUrl))
+            {
+                return 0;
+            }
+
+            string lower = scriptUrl.ToLowerInvariant();
+
+            int score = 0;
+
+            if (lower.Contains("radio"))
+            {
+                score += 1000;
+            }
+
+            if (lower.Contains("player"))
+            {
+                score += 1000;
+            }
+
+            if (lower.Contains("jplayer"))
+            {
+                score += 500;
+            }
+
+            if (lower.Contains("stream"))
+            {
+                score += 500;
+            }
+
+            return score;
         }
     }
 }
