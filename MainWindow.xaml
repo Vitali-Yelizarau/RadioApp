@@ -107,7 +107,35 @@
             <ListBox x:Name="StationsListBox"
                      Grid.Row="0"
                      Grid.Column="1"
+                     AllowDrop="True"
+                     PreviewMouseLeftButtonDown="StationsListBox_PreviewMouseLeftButtonDown"
+                     MouseMove="StationsListBox_MouseMove"
+                     Drop="StationsListBox_Drop"
                      MouseDoubleClick="StationsListBox_MouseDoubleClick">
+
+                <ListBox.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="Sort by...">
+
+                            <MenuItem Header="Name">
+                                <MenuItem Header="Ascending"
+                              Click="SortStationsByNameAscendingMenuItem_Click"/>
+
+                                <MenuItem Header="Descending"
+                              Click="SortStationsByNameDescendingMenuItem_Click"/>
+                            </MenuItem>
+
+                            <MenuItem Header="Play count">
+                                <MenuItem Header="Ascending"
+                              Click="SortStationsByPlayCountAscendingMenuItem_Click"/>
+
+                                <MenuItem Header="Descending"
+                              Click="SortStationsByPlayCountDescendingMenuItem_Click"/>
+                            </MenuItem>
+
+                        </MenuItem>
+                    </ContextMenu>
+                </ListBox.ContextMenu>
 
                 <ListBox.ItemTemplate>
                     <DataTemplate>

@@ -1,5 +1,6 @@
 ﻿using RadioApp.Data;
 using RadioApp.Models;
+using System;
 using System.Collections.Generic;
 using System.Data.Entity;
 using System.Data.SQLite;
@@ -25,31 +26,70 @@ namespace RadioApp.Services
                 using (var command = connection.CreateCommand())
                 {
                     command.CommandText = @"
-                                            CREATE TABLE IF NOT EXISTS MediaItems
-                                            (
-                                                Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                                Title TEXT NOT NULL,
-                                                Description TEXT,
-                                                SourceType INTEGER NOT NULL,
-                                                StreamUrl TEXT NOT NULL,
-                                                WebsiteUrl TEXT,
-                                                Genre TEXT,
-                                                SortOrder INTEGER NOT NULL DEFAULT 0,
-                                                IsEnabled INTEGER NOT NULL DEFAULT 1
-                                            );
+                CREATE TABLE IF NOT EXISTS MediaItems
+                (
+                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    Title TEXT NOT NULL,
+                    Description TEXT,
+                    SourceType INTEGER NOT NULL,
+                    StreamUrl TEXT NOT NULL,
+                    WebsiteUrl TEXT,
+                    Genre TEXT,
+                    SortOrder INTEGER NOT NULL DEFAULT 0,
+                    PlayCount INTEGER NOT NULL DEFAULT 0,
+                    IsEnabled INTEGER NOT NULL DEFAULT 1
+                );
 
-                                            CREATE TABLE IF NOT EXISTS PlayHistoryItems
-                                            (
-                                                Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                                MediaItemId INTEGER NOT NULL,
-                                                WhenPlayed DATETIME NOT NULL,
-                                                TrackName TEXT,
-                                                FOREIGN KEY (MediaItemId) REFERENCES MediaItems(Id) ON DELETE CASCADE
-                                            );
-                                        ";
+                CREATE TABLE IF NOT EXISTS PlayHistoryItems
+                (
+                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    MediaItemId INTEGER NOT NULL,
+                    WhenPlayed DATETIME NOT NULL,
+                    TrackName TEXT,
+                    FOREIGN KEY (MediaItemId) REFERENCES MediaItems(Id) ON DELETE CASCADE
+                );
+            ";
 
                     command.ExecuteNonQuery();
                 }
+
+                EnsureMediaItemsColumnExists(
+                    connection,
+                    "PlayCount",
+                    "INTEGER NOT NULL DEFAULT 0"
+                );
+            }
+        }
+
+        private void EnsureMediaItemsColumnExists(
+                            SQLiteConnection connection,
+                            string columnName,
+                            string columnDefinition)
+        {
+            using (var checkCommand = connection.CreateCommand())
+            {
+                checkCommand.CommandText = "PRAGMA table_info(MediaItems);";
+
+                using (SQLiteDataReader reader = checkCommand.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        string existingColumnName = reader["name"].ToString();
+
+                        if (existingColumnName.Equals(columnName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return;
+                        }
+                    }
+                }
+            }
+
+            using (var alterCommand = connection.CreateCommand())
+            {
+                alterCommand.CommandText =
+                    "ALTER TABLE MediaItems ADD COLUMN " + columnName + " " + columnDefinition + ";";
+
+                alterCommand.ExecuteNonQuery();
             }
         }
 
@@ -235,6 +275,42 @@ namespace RadioApp.Services
             }
 
             return value.Substring(0, maxLength);
+        }
+
+        public async Task UpdateSortOrderAsync(List<MediaItem> items)
+        {
+            if (items == null || items.Count == 0)
+            {
+                return;
+            }
+
+            using (var db = new RadioDbContext())
+            {
+                foreach (MediaItem item in items)
+                {
+                    MediaItem dbItem = db.MediaItems.FirstOrDefault(x => x.Id == item.Id);
+
+                    if (dbItem == null)
+                    {
+                        continue;
+                    }
+
+                    dbItem.SortOrder = item.SortOrder;
+                }
+
+                await db.SaveChangesAsync();
+            }
+        }
+
+        public async Task IncrementPlayCountAsync(int mediaItemId)
+        {
+            using (var db = new RadioDbContext())
+            {
+                await db.Database.ExecuteSqlCommandAsync(
+                    "UPDATE MediaItems SET PlayCount = PlayCount + 1 WHERE Id = @p0",
+                    mediaItemId
+                );
+            }
         }
     }
 }

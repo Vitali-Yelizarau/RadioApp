@@ -25,6 +25,7 @@ namespace RadioApp.Models
         public string Genre { get; set; }
 
         public int SortOrder { get; set; }
+        public int PlayCount { get; set; }
 
         public bool IsEnabled { get; set; }
 

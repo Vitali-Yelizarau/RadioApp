@@ -8,7 +8,9 @@ using System.Data.Entity.Validation;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 
 namespace RadioApp
 {
@@ -22,6 +24,7 @@ namespace RadioApp
 
         private List<MediaItem> _playlist;
         private int _currentIndex;
+        private Point _dragStartPoint;
 
         private MediaItem _currentlyPlayingStation;
         private bool _isPlaying;
@@ -33,6 +36,18 @@ namespace RadioApp
             {
                 return StationsListBox.SelectedItem as MediaItem;
             }
+        }
+
+        private enum StationSortField
+        {
+            Name,
+            PlayCount
+        }
+
+        private enum SortDirection
+        {
+            Ascending,
+            Descending
         }
 
         public MainWindow()
@@ -93,6 +108,26 @@ namespace RadioApp
             {
                 IsEnabled = true;
             }
+        }
+
+        private async void SortStationsByNameAscendingMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            await SortStationsAsync(StationSortField.Name, SortDirection.Ascending);
+        }
+
+        private async void SortStationsByNameDescendingMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            await SortStationsAsync(StationSortField.Name, SortDirection.Descending);
+        }
+
+        private async void SortStationsByPlayCountAscendingMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            await SortStationsAsync(StationSortField.PlayCount, SortDirection.Ascending);
+        }
+
+        private async void SortStationsByPlayCountDescendingMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            await SortStationsAsync(StationSortField.PlayCount, SortDirection.Descending);
         }
 
         private async void AddButton_Click(object sender, RoutedEventArgs e)
@@ -274,6 +309,85 @@ namespace RadioApp
             {
                 await PlayStationAsync(selected);
             });
+        }
+
+        private void StationsListBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            _dragStartPoint = e.GetPosition(null);
+        }
+
+        private void StationsListBox_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (e.LeftButton != MouseButtonState.Pressed)
+            {
+                return;
+            }
+
+            Point currentPosition = e.GetPosition(null);
+
+            if (Math.Abs(currentPosition.X - _dragStartPoint.X) < SystemParameters.MinimumHorizontalDragDistance &&
+                Math.Abs(currentPosition.Y - _dragStartPoint.Y) < SystemParameters.MinimumVerticalDragDistance)
+            {
+                return;
+            }
+
+            MediaItem draggedItem = GetMediaItemFromMousePosition(e.GetPosition(StationsListBox));
+
+            if (draggedItem == null)
+            {
+                return;
+            }
+
+            DragDrop.DoDragDrop(
+                StationsListBox,
+                draggedItem,
+                DragDropEffects.Move
+            );
+        }
+
+        private async void StationsListBox_Drop(object sender, DragEventArgs e)
+        {
+            if (!e.Data.GetDataPresent(typeof(MediaItem)))
+            {
+                return;
+            }
+
+            MediaItem droppedItem = e.Data.GetData(typeof(MediaItem)) as MediaItem;
+
+            if (droppedItem == null)
+            {
+                return;
+            }
+
+            MediaItem targetItem = GetMediaItemFromMousePosition(e.GetPosition(StationsListBox));
+
+            if (targetItem == null)
+            {
+                return;
+            }
+
+            if (droppedItem.Id == targetItem.Id)
+            {
+                return;
+            }
+
+            int oldIndex = _playlist.IndexOf(droppedItem);
+            int newIndex = _playlist.IndexOf(targetItem);
+
+            if (oldIndex < 0 || newIndex < 0)
+            {
+                return;
+            }
+
+            _playlist.RemoveAt(oldIndex);
+            _playlist.Insert(newIndex, droppedItem);
+
+            await SavePlaylistOrderAsync();
+
+            StationsListBox.ItemsSource = null;
+            StationsListBox.ItemsSource = _playlist;
+            StationsListBox.SelectedItem = droppedItem;
+            StationsListBox.ScrollIntoView(droppedItem);
         }
 
         private async void PlayPauseButton_Click(object sender, RoutedEventArgs e)
@@ -468,6 +582,9 @@ namespace RadioApp
                 await _playbackService.PlayAsync(station.StreamUrl);
 
                 _playbackService.SetVolume((int)VolumeSlider.Value);
+
+                await _databaseService.IncrementPlayCountAsync(station.Id);
+                station.PlayCount++;
 
                 _currentlyPlayingStation = station;
                 _isPlaying = true;
@@ -674,6 +791,113 @@ namespace RadioApp
             {
                 await PlayStationAsync(selected);
             });
+        }
+
+        private MediaItem GetMediaItemFromMousePosition(Point point)
+        {
+            DependencyObject element = StationsListBox.InputHitTest(point) as DependencyObject;
+
+            while (element != null)
+            {
+                ListBoxItem listBoxItem = element as ListBoxItem;
+
+                if (listBoxItem != null)
+                {
+                    return listBoxItem.DataContext as MediaItem;
+                }
+
+                element = VisualTreeHelper.GetParent(element);
+            }
+
+            return null;
+        }
+
+        private async Task SavePlaylistOrderAsync()
+        {
+            for (int i = 0; i < _playlist.Count; i++)
+            {
+                _playlist[i].SortOrder = i;
+            }
+
+            await _databaseService.UpdateSortOrderAsync(_playlist);
+
+            Log.Information(
+                "Playlist order saved. Items count: {Count}",
+                _playlist.Count
+            );
+        }
+
+        private async Task SortStationsAsync(StationSortField field, SortDirection direction)
+        {
+            if (_playlist == null || _playlist.Count == 0)
+            {
+                return;
+            }
+
+            MediaItem selectedItem = StationsListBox.SelectedItem as MediaItem;
+
+            switch (field)
+            {
+                case StationSortField.Name:
+                    _playlist = direction == SortDirection.Ascending
+                        ? _playlist
+                            .OrderBy(x => x.Title ?? string.Empty, StringComparer.CurrentCultureIgnoreCase)
+                            .ToList()
+                        : _playlist
+                            .OrderByDescending(x => x.Title ?? string.Empty, StringComparer.CurrentCultureIgnoreCase)
+                            .ToList();
+                    break;
+
+                case StationSortField.PlayCount:
+                    _playlist = direction == SortDirection.Ascending
+                        ? _playlist
+                            .OrderBy(x => x.PlayCount)
+                            .ThenBy(x => x.Title ?? string.Empty, StringComparer.CurrentCultureIgnoreCase)
+                            .ToList()
+                        : _playlist
+                            .OrderByDescending(x => x.PlayCount)
+                            .ThenBy(x => x.Title ?? string.Empty, StringComparer.CurrentCultureIgnoreCase)
+                            .ToList();
+                    break;
+
+                default:
+                    throw new InvalidOperationException("Unsupported station sort field: " + field);
+            }
+
+            await ApplyPlaylistOrderAsync(selectedItem);
+
+            Log.Information(
+                "Playlist sorted. Field: {Field}, Direction: {Direction}, Items count: {Count}",
+                field,
+                direction,
+                _playlist.Count
+            );
+        }
+
+        private async Task ApplyPlaylistOrderAsync(MediaItem selectedItem)
+        {
+            for (int i = 0; i < _playlist.Count; i++)
+            {
+                _playlist[i].SortOrder = i;
+            }
+
+            await _databaseService.UpdateSortOrderAsync(_playlist);
+
+            StationsListBox.ItemsSource = null;
+            StationsListBox.ItemsSource = _playlist;
+
+            if (selectedItem == null)
+            {
+                return;
+            }
+
+            MediaItem selectedAfterSort = _playlist.FirstOrDefault(x => x.Id == selectedItem.Id);
+
+            if (selectedAfterSort != null)
+            {
+                StationsListBox.SelectedItem = selectedAfterSort;
+                StationsListBox.ScrollIntoView(selectedAfterSort);
+            }
         }
     }
 }

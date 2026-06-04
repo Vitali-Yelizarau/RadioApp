@@ -58,6 +58,10 @@ namespace RadioApp.Data
                 .Property(x => x.Genre)
                 .HasMaxLength(100);
 
+            modelBuilder.Entity<MediaItem>()
+                        .Property(x => x.PlayCount)
+                        .IsRequired();
+
             modelBuilder.Entity<PlayHistoryItem>()
                 .ToTable("PlayHistoryItems");
 
