@@ -15,7 +15,7 @@ namespace RadioApp
     public partial class AddStationWindow : Window
     {
         const int MIN_TIMEOUT = 3;
-        const int MAX_TIMEOUT = 300;
+        const int MAX_TIMEOUT = 600;
 
         // Stream parser executable name — expected next to the host .exe
         private const string ParserExeName = "stream_parser.exe";
