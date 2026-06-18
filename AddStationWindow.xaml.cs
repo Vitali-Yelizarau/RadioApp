@@ -73,12 +73,12 @@ namespace RadioApp
 
                 if (seconds < MIN_TIMEOUT)
                 {
-                    throw new InvalidOperationException("Timeout must be at least 3 seconds.");
+                    throw new InvalidOperationException($"Timeout must be at least {MIN_TIMEOUT} seconds.");
                 }
 
                 if (seconds > MAX_TIMEOUT)
                 {
-                    throw new InvalidOperationException("Timeout must not be greater than 120 seconds.");
+                    throw new InvalidOperationException($"Timeout must not be greater than {MAX_TIMEOUT} seconds.");
                 }
 
                 return seconds;
