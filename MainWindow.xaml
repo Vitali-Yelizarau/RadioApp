@@ -109,12 +109,20 @@
                      Grid.Column="1"
                      AllowDrop="True"
                      PreviewMouseLeftButtonDown="StationsListBox_PreviewMouseLeftButtonDown"
+                     PreviewMouseRightButtonDown="StationsListBox_PreviewMouseRightButtonDown"
                      MouseMove="StationsListBox_MouseMove"
                      Drop="StationsListBox_Drop"
                      MouseDoubleClick="StationsListBox_MouseDoubleClick">
 
                 <ListBox.ContextMenu>
                     <ContextMenu>
+                        <MenuItem Header="Play"
+                                  Click="ContextPlayMenuItem_Click"/>
+                        <MenuItem Header="Edit"
+                                  Click="ContextEditMenuItem_Click"/>
+                        <MenuItem Header="Delete"
+                                  Click="ContextDeleteMenuItem_Click"/>
+                        <Separator/>
                         <MenuItem Header="Sort by...">
 
                             <MenuItem Header="Name">

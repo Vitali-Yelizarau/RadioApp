@@ -2,6 +2,8 @@
 using RadioApp.Services;
 using Serilog;
 using System;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Threading;
@@ -15,7 +17,14 @@ namespace RadioApp
         const int MIN_TIMEOUT = 3;
         const int MAX_TIMEOUT = 300;
 
-        private readonly RadioStreamDiscoveryService _discoveryService;
+        // Stream parser executable name — expected next to the host .exe
+        private const string ParserExeName = "stream_parser.exe";
+
+        // Fallback: GitHub repository URL shown when the parser is not found
+        private const string ParserRepositoryUrl = "https://github.com/Vitali-Yelizarau/StreamURL_Parser";
+
+        // Use the Python-based stream parser instead of the old C# service
+        private readonly PythonStreamDiscoveryService _discoveryService;
         private readonly RadioStreamInfoService _streamInfoService;
 
         private readonly StationWindowMode _mode;
@@ -106,7 +115,7 @@ namespace RadioApp
 
             _mode = StationWindowMode.Add;
 
-            _discoveryService = new RadioStreamDiscoveryService();
+            _discoveryService = new PythonStreamDiscoveryService();
             _streamInfoService = new RadioStreamInfoService();
 
             DiscoveredStream = new DiscoveredRadioStream();
@@ -121,7 +130,7 @@ namespace RadioApp
             _mode = StationWindowMode.Edit;
             _editingItem = item ?? throw new ArgumentNullException(nameof(item));
 
-            _discoveryService = new RadioStreamDiscoveryService();
+            _discoveryService = new PythonStreamDiscoveryService();
             _streamInfoService = new RadioStreamInfoService();
 
             DiscoveredStream = new DiscoveredRadioStream
@@ -177,6 +186,13 @@ namespace RadioApp
             try
             {
                 SetBusyState(true, "Checking...");
+
+                // Check that the parser executable is available before attempting discovery
+                if (!IsParserAvailable())
+                {
+                    PromptParserNotFound();
+                    return;
+                }
 
                 if (!string.IsNullOrWhiteSpace(StreamUrl))
                 {
@@ -348,6 +364,15 @@ namespace RadioApp
                 return PrepareStationFromDirectStreamUrl();
             }
 
+            // Page URL provided — check parser availability before launching
+            if (!IsParserAvailable())
+            {
+                PromptParserNotFound();
+                throw new InvalidOperationException(
+                    "Stream parser is not available. Please download it from the repository."
+                );
+            }
+
             return await DetectStreamFromPageAsync(PageUrl, cancellationToken);
         }
 
@@ -452,9 +477,6 @@ namespace RadioApp
                 throw new InvalidOperationException("Stream URL is required.");
             }
 
-            // Для Update по текущей логике не проверяем, играет ли поток.
-            // Пользователь может вручную изменить Stream URL и Description.
-
             DiscoveredStream = new DiscoveredRadioStream
             {
                 PageUrl = PageUrl,
@@ -465,27 +487,263 @@ namespace RadioApp
             };
         }
 
-        private async Task<DiscoveredRadioStream> DetectStreamFromPageAsync(string pageUrl, CancellationToken cancellationToken)
+        private async Task<DiscoveredRadioStream> DetectStreamFromPageAsync(
+            string pageUrl,
+            CancellationToken cancellationToken)
         {
-            Log.Information("Stream URL is empty. Trying to detect stream from page URL: {PageUrl}", pageUrl);
+            Log.Information(
+                "Stream URL is empty. Trying to detect stream from page URL: {PageUrl}",
+                pageUrl);
 
-            DiscoveredRadioStream result = await _discoveryService.DiscoverAsync(pageUrl, cancellationToken);
+            DiscoveredRadioStream result = await _discoveryService.DiscoverAsync(
+                pageUrl,
+                TimeoutSeconds,
+                cancellationToken);
 
             if (result == null || string.IsNullOrWhiteSpace(result.StreamUrl))
             {
-                throw new InvalidOperationException("Stream URL could not be detected from this page.");
+                throw new InvalidOperationException(
+                    "Stream URL could not be detected from this page.");
             }
 
             ApplyResultToForm(result);
+
+            // Try to enrich station name and description from ICY headers or page meta tags
+            await TryEnrichStationInfoAsync(result, cancellationToken);
 
             Log.Information(
                 "Stream detected from page. PageUrl: {PageUrl}, StreamUrl: {StreamUrl}, StationName: {StationName}",
                 result.PageUrl,
                 result.StreamUrl,
-                result.StationName
-            );
+                result.StationName);
 
             return result;
+        }
+
+        /// <summary>
+        /// Tries to enrich the discovered stream with station name and description.
+        ///
+        /// Priority order:
+        ///   1. HTML meta tags from the page URL (og:title, og:description, etc.)
+        ///      — most human-readable source
+        ///   2. ICY headers from the stream URL (icy-name, icy-description)
+        ///      — fallback; often contains technical IDs like "ROCK_RADIO"
+        ///
+        /// The parser-generated description (audio/mpeg · via ...) is kept only
+        /// if neither meta tags nor ICY provide a better description.
+        /// Only fills fields that are still empty — never overwrites user input.
+        /// </summary>
+        private async Task TryEnrichStationInfoAsync(
+            DiscoveredRadioStream result,
+            CancellationToken cancellationToken)
+        {
+            if (result == null || string.IsNullOrWhiteSpace(result.StreamUrl))
+                return;
+
+            // Step 1: HTML meta tags from the page — best human-readable source
+            if (!string.IsNullOrWhiteSpace(result.PageUrl))
+            {
+                try
+                {
+                    var metaInfo = await TryGetMetaTagInfoAsync(result.PageUrl, cancellationToken);
+
+                    if (metaInfo != null)
+                    {
+                        if (!string.IsNullOrWhiteSpace(metaInfo.Item1))
+                        {
+                            result.StationName = metaInfo.Item1;
+                            Log.Debug("Enriched station name from meta tags: {Name}", result.StationName);
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(metaInfo.Item2))
+                        {
+                            // Prepend human-readable description before the technical parser info
+                            if (!string.IsNullOrWhiteSpace(result.Description))
+                            {
+                                result.Description = metaInfo.Item2
+                                    + Environment.NewLine + Environment.NewLine
+                                    + result.Description;
+                            }
+                            else
+                            {
+                                result.Description = metaInfo.Item2;
+                            }
+                            Log.Debug("Enriched description from meta tags: {Desc}", result.Description);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Debug(ex, "Meta tag enrichment failed for: {PageUrl}", result.PageUrl);
+                }
+            }
+
+            // Step 2: ICY headers — fallback if meta tags gave nothing
+            if (string.IsNullOrWhiteSpace(result.StationName) ||
+                string.IsNullOrWhiteSpace(result.Description))
+            {
+                try
+                {
+                    DiscoveredRadioStream icyInfo = await _streamInfoService
+                        .GetStreamInfoIfPlayableAsync(result.PageUrl, result.StreamUrl, 8);
+
+                    if (icyInfo != null)
+                    {
+                        if (string.IsNullOrWhiteSpace(result.StationName) &&
+                            !string.IsNullOrWhiteSpace(icyInfo.StationName))
+                        {
+                            result.StationName = icyInfo.StationName;
+                            Log.Debug("Enriched station name from ICY: {Name}", result.StationName);
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(icyInfo.Description))
+                        {
+                            // Prepend ICY description before the technical parser info
+                            if (!string.IsNullOrWhiteSpace(result.Description))
+                            {
+                                result.Description = icyInfo.Description
+                                    + Environment.NewLine + Environment.NewLine
+                                    + result.Description;
+                            }
+                            else
+                            {
+                                result.Description = icyInfo.Description;
+                            }
+                            Log.Debug("Enriched description from ICY: {Desc}", result.Description);
+                        }
+
+                        if (string.IsNullOrWhiteSpace(result.Genre) &&
+                            !string.IsNullOrWhiteSpace(icyInfo.Genre))
+                        {
+                            result.Genre = icyInfo.Genre;
+                        }
+
+                        if (result.Bitrate == null && icyInfo.Bitrate != null)
+                        {
+                            result.Bitrate = icyInfo.Bitrate;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Debug(ex, "ICY enrichment failed for: {StreamUrl}", result.StreamUrl);
+                }
+            }
+
+            // Re-apply enriched data to form fields, overwriting
+            // the technical parser text from the initial ApplyResultToForm call
+            ApplyEnrichedResultToForm(result);
+        }
+
+        /// <summary>
+        /// Force-overwrites form fields with enriched data.
+        /// Unlike ApplyResultToForm, this method does NOT check if the field is empty —
+        /// it always writes the enriched values, since they were already merged
+        /// (e.g. human description prepended before the technical text).
+        /// </summary>
+        private void ApplyEnrichedResultToForm(DiscoveredRadioStream result)
+        {
+            if (result == null)
+                return;
+
+            if (!string.IsNullOrWhiteSpace(result.StreamUrl))
+                StreamUrlTextBox.Text = result.StreamUrl;
+
+            if (!string.IsNullOrWhiteSpace(result.StationName))
+                TitleTextBox.Text = CleanDisplayText(result.StationName);
+
+            if (!string.IsNullOrWhiteSpace(result.Description))
+                DescriptionTextBox.Text = CleanDisplayText(result.Description);
+        }
+
+        /// <summary>
+        /// Downloads the page and extracts title and description from HTML meta tags.
+        /// Returns (title, description) or null if nothing useful was found.
+        /// Checks: og:title, og:description, twitter:title, twitter:description,
+        ///         meta[name=description], and &lt;title&gt; tag.
+        /// </summary>
+        private async Task<Tuple<string, string>> TryGetMetaTagInfoAsync(
+            string pageUrl,
+            CancellationToken cancellationToken)
+        {
+            using (var client = new System.Net.Http.HttpClient())
+            {
+                client.Timeout = TimeSpan.FromSeconds(10);
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 RadioApp/1.0");
+
+                string html;
+                try
+                {
+                    html = await client.GetStringAsync(pageUrl);
+                }
+                catch
+                {
+                    return null;
+                }
+
+                if (string.IsNullOrWhiteSpace(html))
+                    return null;
+
+                string title = null;
+                string description = null;
+
+                // og:title / og:description / twitter:title / twitter:description
+                var metaPattern = new System.Text.RegularExpressions.Regex(
+                    @"<meta\s+[^>]*(?:property|name)\s*=\s*[""']([^""']+)[""'][^>]*content\s*=\s*[""']([^""']*)[""']|" +
+                    @"<meta\s+[^>]*content\s*=\s*[""']([^""']*)[""'][^>]*(?:property|name)\s*=\s*[""']([^""']+)[""']",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+                    System.Text.RegularExpressions.RegexOptions.Singleline);
+
+                foreach (System.Text.RegularExpressions.Match m in metaPattern.Matches(html))
+                {
+                    string propName = !string.IsNullOrWhiteSpace(m.Groups[1].Value)
+                        ? m.Groups[1].Value.ToLowerInvariant()
+                        : m.Groups[4].Value.ToLowerInvariant();
+
+                    string propValue = !string.IsNullOrWhiteSpace(m.Groups[2].Value)
+                        ? m.Groups[2].Value
+                        : m.Groups[3].Value;
+
+                    propValue = WebUtility.HtmlDecode(propValue.Trim());
+
+                    if (string.IsNullOrWhiteSpace(propValue))
+                        continue;
+
+                    if (title == null &&
+                        (propName == "og:title" || propName == "twitter:title"))
+                    {
+                        title = propValue;
+                    }
+
+                    if (description == null &&
+                        (propName == "og:description" ||
+                         propName == "twitter:description" ||
+                         propName == "description" ||
+                         propName == "desc"))
+                    {
+                        description = propValue;
+                    }
+                }
+
+                // Fallback: <title> tag
+                if (title == null)
+                {
+                    var titleMatch = System.Text.RegularExpressions.Regex.Match(
+                        html,
+                        @"<title[^>]*>([^<]+)</title>",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                    if (titleMatch.Success)
+                    {
+                        title = WebUtility.HtmlDecode(titleMatch.Groups[1].Value.Trim());
+                    }
+                }
+
+                if (title == null && description == null)
+                    return null;
+
+                return Tuple.Create(title ?? string.Empty, description ?? string.Empty);
+            }
         }
 
         private void ApplyResultToForm(DiscoveredRadioStream result)
@@ -510,6 +768,86 @@ namespace RadioApp
                 else if (!string.IsNullOrWhiteSpace(result.StationName))
                 {
                     DescriptionTextBox.Text = CleanDisplayText(result.StationName);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Returns true if the stream parser executable is present next to the host .exe
+        /// or anywhere on the system PATH.
+        /// </summary>
+        private bool IsParserAvailable()
+        {
+            // Check next to the running .exe first
+            string exeDir = AppDomain.CurrentDomain.BaseDirectory;
+            string localPath = Path.Combine(exeDir, ParserExeName);
+
+            if (File.Exists(localPath))
+            {
+                return true;
+            }
+
+            // Also check inside stream_parser sub-folder (PyInstaller onedir layout)
+            string subFolderPath = Path.Combine(exeDir, "stream_parser", ParserExeName);
+
+            if (File.Exists(subFolderPath))
+            {
+                return true;
+            }
+
+            // Finally check PATH
+            string pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+
+            foreach (string dir in pathEnv.Split(Path.PathSeparator))
+            {
+                try
+                {
+                    if (File.Exists(Path.Combine(dir, ParserExeName)))
+                    {
+                        return true;
+                    }
+                }
+                catch
+                {
+                    // Skip invalid PATH entries
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Shows a message box informing the user that the parser is missing
+        /// and offers to open the GitHub repository.
+        /// </summary>
+        private void PromptParserNotFound()
+        {
+            Log.Warning(
+                "Stream parser executable not found. Expected: {ParserExeName}",
+                ParserExeName);
+
+            MessageBoxResult choice = MessageBox.Show(
+                $"Stream parser ({ParserExeName}) was not found.\n\n" +
+                $"Please download it from the repository and place it next to the application.\n\n" +
+                $"Open the repository now?",
+                "Stream parser not found",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning
+            );
+
+            if (choice == MessageBoxResult.Yes)
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = ParserRepositoryUrl,
+                        UseShellExecute = true
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Failed to open repository URL: {Url}", ParserRepositoryUrl);
                 }
             }
         }

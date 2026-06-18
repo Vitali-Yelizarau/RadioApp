@@ -899,5 +899,57 @@ namespace RadioApp
                 StationsListBox.ScrollIntoView(selectedAfterSort);
             }
         }
+
+        private void StationsListBox_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            // Select the item under the right-click so context menu actions target it
+            MediaItem clickedItem = GetMediaItemFromMousePosition(e.GetPosition(StationsListBox));
+
+            if (clickedItem != null)
+            {
+                StationsListBox.SelectedItem = clickedItem;
+            }
+        }
+
+        private async void ContextPlayMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            MediaItem selected = SelectedStation;
+
+            if (selected == null)
+                return;
+
+            await RunPlaybackOperationAsync(async () =>
+            {
+                await PlayStationAsync(selected);
+            });
+        }
+
+        private void ContextEditMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            // Reuse the same logic as the Edit button
+            EditButton_Click(sender, e);
+        }
+
+        private async void ContextDeleteMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            MediaItem selected = SelectedStation;
+
+            if (selected == null)
+                return;
+
+            MessageBoxResult choice = MessageBox.Show(
+                $"Delete \"{selected.Title}\"?",
+                "Confirm delete",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question
+            );
+
+            if (choice != MessageBoxResult.Yes)
+                return;
+
+            DeleteRadioStation(selected.Id);
+            _playlist = await _databaseService.GetEnabledMediaItems();
+            StationsListBox.ItemsSource = _playlist;
+        }
     }
 }
