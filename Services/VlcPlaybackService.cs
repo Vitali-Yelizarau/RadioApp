@@ -10,7 +10,6 @@ namespace RadioApp.Services
     public class VlcPlaybackService : IDisposable
     {
         private readonly object _syncRoot = new object();
-        private readonly StreamPlaybackUrlResolver _playbackUrlResolver;
 
         private readonly string _vlcLogPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logs", "vlc.log");
         private LibVLC _libVlc;
@@ -18,18 +17,12 @@ namespace RadioApp.Services
         private Media _currentMedia;
 
         private bool _isInitialized;
-        private string _currentOriginalUrl;
-        private string _currentPlaybackUrl;
+        private string _currentStreamUrl;
 
         public event EventHandler PlaybackStarted;
         public event EventHandler PlaybackPaused;
         public event EventHandler PlaybackStopped;
         public event EventHandler<string> PlaybackFailed;
-
-        public VlcPlaybackService()
-        {
-            _playbackUrlResolver = new StreamPlaybackUrlResolver();
-        }
 
         public bool IsPlaying
         {
@@ -53,27 +46,17 @@ namespace RadioApp.Services
 
             Log.Information("VLC PlayAsync started. StreamUrl: {StreamUrl}", streamUrl);
 
-            string playbackUrl = await _playbackUrlResolver.ResolvePlaybackUrlAsync(streamUrl);
-
-            Log.Information(
-                "VLC playback URL selected in {ElapsedMilliseconds} ms. OriginalUrl: {OriginalUrl}, PlaybackUrl: {PlaybackUrl}",
-                totalWatch.ElapsedMilliseconds,
-                streamUrl,
-                playbackUrl
-            );
-
             await Task.Run(() =>
             {
-                StartPlaybackInternal(streamUrl, playbackUrl);
+                StartPlaybackInternal(streamUrl);
             });
 
             totalWatch.Stop();
 
             Log.Information(
-                "VLC PlayAsync finished in {ElapsedMilliseconds} ms. OriginalUrl: {OriginalUrl}, PlaybackUrl: {PlaybackUrl}",
+                "VLC PlayAsync finished in {ElapsedMilliseconds} ms. StreamUrl: {StreamUrl}",
                 totalWatch.ElapsedMilliseconds,
-                streamUrl,
-                playbackUrl
+                streamUrl
             );
         }
 
@@ -168,8 +151,7 @@ namespace RadioApp.Services
                     }
 
                     _isInitialized = false;
-                    _currentOriginalUrl = null;
-                    _currentPlaybackUrl = null;
+                    _currentStreamUrl = null;
 
                 }
                 catch (Exception ex)
@@ -179,7 +161,7 @@ namespace RadioApp.Services
             }
         }
 
-        private void StartPlaybackInternal(string originalUrl, string playbackUrl)
+        private void StartPlaybackInternal(string streamUrl)
         {
             var watch = Stopwatch.StartNew();
 
@@ -198,18 +180,17 @@ namespace RadioApp.Services
 
                 System.Threading.Thread.Sleep(500);
 
-                _currentOriginalUrl = originalUrl;
-                _currentPlaybackUrl = playbackUrl;
+                _currentStreamUrl = streamUrl;
 
                 Log.Information(
-                    "VLC opening stream. OriginalUrl: {OriginalUrl}, PlaybackUrl: {PlaybackUrl}",
-                    _currentOriginalUrl,
-                    _currentPlaybackUrl
+                    "VLC opening stream. StreamUrl: {StreamUrl}",
+                    _currentStreamUrl
                 );
 
                 DisposeCurrentMedia();
 
-                _currentMedia = new Media(_libVlc, new Uri(_currentPlaybackUrl));
+                // VLC handles HTTP redirects natively, so no external URL resolution is needed
+                _currentMedia = new Media(_libVlc, new Uri(_currentStreamUrl));
 
                 _currentMedia.AddOption(":no-video");
                 _currentMedia.AddOption(":network-caching=5000");
@@ -328,9 +309,8 @@ namespace RadioApp.Services
         private void MediaPlayer_Playing(object sender, EventArgs e)
         {
             Log.Information(
-                "VLC playback started. OriginalUrl: {OriginalUrl}, PlaybackUrl: {PlaybackUrl}",
-                _currentOriginalUrl,
-                _currentPlaybackUrl
+                "VLC playback started. StreamUrl: {StreamUrl}",
+                _currentStreamUrl
             );
 
             PlaybackStarted?.Invoke(this, EventArgs.Empty);
@@ -360,10 +340,9 @@ namespace RadioApp.Services
         private void MediaPlayer_Buffering(object sender, MediaPlayerBufferingEventArgs e)
         {
             Log.Debug(
-                "VLC buffering. Cache: {CachePercent}. OriginalUrl: {OriginalUrl}, PlaybackUrl: {PlaybackUrl}",
+                "VLC buffering. Cache: {CachePercent}. StreamUrl: {StreamUrl}",
                 Math.Round(e.Cache),
-                _currentOriginalUrl,
-                _currentPlaybackUrl
+                _currentStreamUrl
             );
         }
 
@@ -372,9 +351,8 @@ namespace RadioApp.Services
             string message = "LibVLC encountered a playback error.";
 
             Log.Error(
-                "VLC playback error. OriginalUrl: {OriginalUrl}, PlaybackUrl: {PlaybackUrl}",
-                _currentOriginalUrl,
-                _currentPlaybackUrl
+                "VLC playback error. StreamUrl: {StreamUrl}",
+                _currentStreamUrl
             );
 
             PlaybackFailed?.Invoke(this, message);

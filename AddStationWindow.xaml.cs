@@ -880,6 +880,7 @@ namespace RadioApp
             DescriptionTextBox.IsEnabled = !isBusy;
 
             FindStreamUrlButton.IsEnabled = !isBusy;
+            StreamUrlHelpButton.IsEnabled = !isBusy;
             CancelButton.IsEnabled = !isBusy;
             AddButton.IsEnabled = !isBusy;
             TitleTextBox.IsEnabled = !isBusy;

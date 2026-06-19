@@ -164,24 +164,10 @@
       <DependentUpon>AddStationWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="Models\DiscoveredRadioStream.cs" />
-    <Compile Include="Models\RadioStreamDiscoveryService.cs" />
     <Compile Include="Services\PythonStreamDiscoveryService.cs" />
     <Compile Include="Services\RadioStreamInfoService.cs" />
     <Compile Include="Models\StationWindowMode.cs" />
     <Compile Include="Services\RadioDatabaseService.cs" />
-    <Compile Include="Services\StreamDiscovery\AmperwaveDiscoveryService.cs" />
-    <Compile Include="Services\StreamDiscovery\GenericStreamDiscoveryService.cs" />
-    <Compile Include="Services\StreamDiscovery\HearMeFmDiscoveryService.cs" />
-    <Compile Include="Services\StreamDiscovery\HttpTextDownloadService.cs" />
-    <Compile Include="Services\StreamDiscovery\InternetRadioDirectoryDiscoveryService.cs" />
-    <Compile Include="Services\StreamDiscovery\RadioStationUsaParser.cs" />
-    <Compile Include="Services\StreamDiscovery\SecureNetSystemsDiscoveryService.cs" />
-    <Compile Include="Services\StreamDiscovery\StreamCandidateCollector.cs" />
-    <Compile Include="Services\StreamDiscovery\StreamCandidateEvaluation.cs" />
-    <Compile Include="Services\StreamDiscovery\StreamCandidateFilter.cs" />
-    <Compile Include="Services\StreamDiscovery\StreamCandidatePrioritizer.cs" />
-    <Compile Include="Services\StreamDiscovery\StreamUrlExtractor.cs" />
-    <Compile Include="Services\StreamPlaybackUrlResolver.cs" />
     <Compile Include="Services\VlcPlaybackService.cs" />
     <Page Include="AddStationWindow.xaml">
       <SubType>Designer</SubType>
