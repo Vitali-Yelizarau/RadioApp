@@ -1,7 +1,7 @@
 # My Radio Player
 
 A simple Windows desktop radio player for online stations. Paste a station's web page URL, and the app automatically discovers the underlying audio stream and saves the station to your library. Playback is handled by VLC under the hood, so most common stream formats are supported out of the box.
-![Main window]<img width="681" height="335" alt="image" src="https://github.com/user-attachments/assets/968780fa-7c76-4972-9a53-1b61b4d22143" />
+<img width="681" height="335" alt="image" src="https://github.com/user-attachments/assets/968780fa-7c76-4972-9a53-1b61b4d22143" />
 
 
 
@@ -60,7 +60,7 @@ You don't need to install VLC separately. The app ships with the LibVLC native l
    - **Description** — human-readable text from the page (Open Graph tags, `<meta name="description">`, etc.), plus technical parser info (content type, extraction method, alternative candidates if any)
 5. Edit any field if needed, then click **Add**.
 
-![Add station window with results]<img width="738" height="475" alt="image" src="https://github.com/user-attachments/assets/36580b65-c8c6-47dc-9c1d-07c8f381b38b" />
+<img width="738" height="475" alt="image" src="https://github.com/user-attachments/assets/36580b65-c8c6-47dc-9c1d-07c8f381b38b" />
 
 
 The **Timeout, s** field controls how long the parser is allowed to work. Default is 60 seconds; the maximum is **999 seconds**. Increase it for slow sites with heavy JavaScript or ad loading; reduce it if you just want a quick check.
@@ -82,7 +82,7 @@ If the parser fails or returns the wrong URL, see [Finding a Stream URL manually
 - Click the **pencil** button (or right-click → **Edit**) to open the same Add Station form pre-filled with the station's current values. Make changes and click **Add** to save.
 - Click the **−** button (or right-click → **Delete**) to remove a station. The app asks for confirmation before deleting.
 
-![Context menu]<img width="682" height="336" alt="image" src="https://github.com/user-attachments/assets/01df09bf-f2c4-4011-b8fb-5daf75836b56" />
+<img width="682" height="336" alt="image" src="https://github.com/user-attachments/assets/01df09bf-f2c4-4011-b8fb-5daf75836b56" />
 
 
 ### Sorting the station list
@@ -224,7 +224,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 If the parser can't extract a stream from a particular site (see [Known limitations](#known-limitations) below), you can find the stream URL yourself using browser DevTools. The same guide is built into the app — click the **?** button next to the Stream URL field on the Add Station window.
 
-![Stream URL help dialog] <img width="917" height="365" alt="image" src="https://github.com/user-attachments/assets/08022611-a6ea-4524-a5e0-ea3647ff8525" />
+<img width="917" height="365" alt="image" src="https://github.com/user-attachments/assets/08022611-a6ea-4524-a5e0-ea3647ff8525" />
 
 
 1. Open the station's page in Chrome, Edge or Firefox.
