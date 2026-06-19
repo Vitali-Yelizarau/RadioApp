@@ -179,6 +179,22 @@ namespace RadioApp.Services
             }
         }
 
+        public void DeleteMediaItem(int mediaItemId)
+        {
+            using (var db = new RadioDbContext())
+            {
+                var item = db.MediaItems.FirstOrDefault(x => x.Id == mediaItemId);
+
+                if (item == null)
+                {
+                    return;
+                }
+
+                db.MediaItems.Remove(item);
+                db.SaveChanges();
+            }
+        }
+
         private string NormalizeStreamUrl(string streamUrl)
         {
             if (string.IsNullOrWhiteSpace(streamUrl))

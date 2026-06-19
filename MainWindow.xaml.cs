@@ -1,5 +1,4 @@
-﻿using RadioApp.Data;
-using RadioApp.Models;
+﻿using RadioApp.Models;
 using RadioApp.Services;
 using Serilog;
 using System;
@@ -23,7 +22,6 @@ namespace RadioApp
         private readonly VlcPlaybackService _playbackService = new VlcPlaybackService();
 
         private List<MediaItem> _playlist;
-        private int _currentIndex;
         private Point _dragStartPoint;
 
         private MediaItem _currentlyPlayingStation;
@@ -78,16 +76,13 @@ namespace RadioApp
                 _playlist = playlist;
 
                 StationsListBox.ItemsSource = _playlist;
-                //StationsListBox.DisplayMemberPath = "Title";
 
                 if (_playlist.Count > 0)
                 {
-                    _currentIndex = 0;
                     StationsListBox.SelectedIndex = 0;
                 }
                 else
                 {
-                    _currentIndex = -1;
                     Log.Information("Playlist is empty.");
                 }
 
@@ -214,12 +209,7 @@ namespace RadioApp
 
         private async void DeleteButton_ClickAsync(object sender, RoutedEventArgs e)
         {
-            if (StationsListBox.SelectedItem is MediaItem selectedItem)
-            {
-                DeleteRadioStation(selectedItem.Id);
-                _playlist = await _databaseService.GetEnabledMediaItems();
-                StationsListBox.ItemsSource = _playlist;
-            }
+            await DeleteSelectedStationWithConfirmationAsync();
         }
 
         private async void EditButton_Click(object sender, RoutedEventArgs e)
@@ -693,19 +683,54 @@ namespace RadioApp
             }
         }
 
-        public void DeleteRadioStation(int mediaItemId)
+        /// <summary>
+        /// Shared deletion logic for the Delete button and the right-click context menu.
+        /// Asks the user to confirm, deletes the selected station, and reloads the playlist.
+        /// </summary>
+        private async Task DeleteSelectedStationWithConfirmationAsync()
         {
-            using (var db = new RadioDbContext())
+            MediaItem selected = SelectedStation;
+
+            if (selected == null)
             {
-                var item = db.MediaItems.FirstOrDefault(x => x.Id == mediaItemId);
+                return;
+            }
 
-                if (item == null)
-                {
-                    return;
-                }
+            MessageBoxResult choice = MessageBox.Show(
+                $"Delete \"{selected.Title}\"?",
+                "Confirm delete",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question
+            );
 
-                db.MediaItems.Remove(item);
-                db.SaveChanges();
+            if (choice != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            try
+            {
+                _databaseService.DeleteMediaItem(selected.Id);
+
+                Log.Information(
+                    "Station deleted. Id: {Id}, Title: {Title}",
+                    selected.Id,
+                    selected.Title
+                );
+
+                _playlist = await _databaseService.GetEnabledMediaItems();
+                StationsListBox.ItemsSource = _playlist;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Failed to delete station. Id: {Id}", selected.Id);
+
+                MessageBox.Show(
+                    "Could not delete this station. Details were written to log.",
+                    "Delete failed",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error
+                );
             }
         }
 
@@ -715,7 +740,6 @@ namespace RadioApp
 
             StationsListBox.ItemsSource = null;
             StationsListBox.ItemsSource = _playlist;
-            //StationsListBox.DisplayMemberPath = "Title";
 
             Log.Information("Playlist reloaded. Items count: {Count}", _playlist.Count);
         }
@@ -932,24 +956,7 @@ namespace RadioApp
 
         private async void ContextDeleteMenuItem_Click(object sender, RoutedEventArgs e)
         {
-            MediaItem selected = SelectedStation;
-
-            if (selected == null)
-                return;
-
-            MessageBoxResult choice = MessageBox.Show(
-                $"Delete \"{selected.Title}\"?",
-                "Confirm delete",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question
-            );
-
-            if (choice != MessageBoxResult.Yes)
-                return;
-
-            DeleteRadioStation(selected.Id);
-            _playlist = await _databaseService.GetEnabledMediaItems();
-            StationsListBox.ItemsSource = _playlist;
+            await DeleteSelectedStationWithConfirmationAsync();
         }
     }
 }
