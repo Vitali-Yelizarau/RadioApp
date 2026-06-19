@@ -976,5 +976,53 @@ namespace RadioApp
 
             return decoded.Trim();
         }
+
+        private void StreamUrlHelpButton_Click(object sender, RoutedEventArgs e)
+        {
+            const string repoUrl = "https://github.com/Vitali-Yelizarau/StreamURL_Parser#finding-a-stream-url-manually";
+
+            string message =
+                "Stream URL is the direct audio endpoint that VLC or any media player can open." + Environment.NewLine +
+                "It is NOT the same as the Radio page URL." + Environment.NewLine +
+                Environment.NewLine +
+                "Example:" + Environment.NewLine +
+                "  Radio page URL:  https://example.com/listen" + Environment.NewLine +
+                "  Stream URL:      https://stream.example.com/live.mp3" + Environment.NewLine +
+                Environment.NewLine +
+                "How to find Stream URL manually:" + Environment.NewLine +
+                "  1. Open the station's page in Chrome / Edge / Firefox." + Environment.NewLine +
+                "  2. Press F12 to open DevTools, switch to the Network tab." + Environment.NewLine +
+                "  3. Enable the Media filter and tick \"Preserve log\"." + Environment.NewLine +
+                "  4. Click the Play button on the station's page." + Environment.NewLine +
+                "  5. Find the new entry with content type audio/mpeg, audio/aac," + Environment.NewLine +
+                "     audio/aacp, or a URL ending with .mp3, .aac, .m3u8." + Environment.NewLine +
+                "  6. Right-click it -> Copy -> Copy URL." + Environment.NewLine +
+                "  7. Paste the URL into the Stream URL field above." + Environment.NewLine +
+                Environment.NewLine +
+                "Open the full guide on GitHub?";
+
+            MessageBoxResult choice = MessageBox.Show(
+                message,
+                "How to find Stream URL",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Information
+            );
+
+            if (choice == MessageBoxResult.Yes)
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = repoUrl,
+                        UseShellExecute = true
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Failed to open help URL: {Url}", repoUrl);
+                }
+            }
+        }
     }
 }

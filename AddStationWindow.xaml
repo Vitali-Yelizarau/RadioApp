@@ -48,9 +48,27 @@
         <TextBlock Grid.Row="8"
                    Text="Stream URL:"/>
 
-        <TextBox x:Name="StreamUrlTextBox"
-                 Grid.Row="10"
-                 Height="28"/>
+        <Grid Grid.Row="10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBox x:Name="StreamUrlTextBox"
+             Grid.Column="0"
+             VerticalContentAlignment="Center"/>
+
+            <Button x:Name="StreamUrlHelpButton"
+                Grid.Column="1"
+                Content="?"
+                Width="24"
+                Height="24"
+                Margin="4,0,0,0"
+                Padding="0"
+                FontWeight="Bold"
+                ToolTip="How to find Stream URL manually"
+                Click="StreamUrlHelpButton_Click"/>
+        </Grid>
 
         <TextBlock Grid.Row="12"
                    Text="Description (optional):"/>
