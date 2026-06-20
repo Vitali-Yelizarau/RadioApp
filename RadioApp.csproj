@@ -168,6 +168,7 @@
     <Compile Include="Services\RadioStreamInfoService.cs" />
     <Compile Include="Models\StationWindowMode.cs" />
     <Compile Include="Services\RadioDatabaseService.cs" />
+    <Compile Include="Services\SleepPreventionService.cs" />
     <Compile Include="Services\VlcPlaybackService.cs" />
     <Page Include="AddStationWindow.xaml">
       <SubType>Designer</SubType>

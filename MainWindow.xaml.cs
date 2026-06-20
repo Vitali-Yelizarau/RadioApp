@@ -20,6 +20,7 @@ namespace RadioApp
     {
         private readonly RadioDatabaseService _databaseService;
         private readonly VlcPlaybackService _playbackService = new VlcPlaybackService();
+        private readonly SleepPreventionService _sleepPreventionService = new SleepPreventionService();
 
         private List<MediaItem> _playlist;
         private Point _dragStartPoint;
@@ -441,6 +442,8 @@ namespace RadioApp
                 _isPlaying = true;
                 _isPaused = false;
 
+                _sleepPreventionService.PreventSleep();
+
                 UpdatePlaybackUi();
             });
         }
@@ -451,6 +454,8 @@ namespace RadioApp
             {
                 _isPlaying = false;
                 _isPaused = true;
+
+                _sleepPreventionService.AllowSleep();
 
                 UpdatePlaybackUi();
             });
@@ -463,6 +468,8 @@ namespace RadioApp
                 _isPlaying = false;
                 _isPaused = false;
 
+                _sleepPreventionService.AllowSleep();
+
                 UpdatePlaybackUi();
             });
         }
@@ -474,6 +481,8 @@ namespace RadioApp
                 _isPlaying = false;
                 _isPaused = false;
                 _currentlyPlayingStation = null;
+
+                _sleepPreventionService.AllowSleep();
 
                 UpdatePlaybackUi();
 
@@ -498,6 +507,7 @@ namespace RadioApp
                 StopCurrentStation();
 
                 _playbackService.Dispose();
+                _sleepPreventionService.AllowSleep();
             }
             catch (Exception ex)
             {
