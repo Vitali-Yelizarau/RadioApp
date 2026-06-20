@@ -6,6 +6,7 @@
         Width="540"
         WindowStartupLocation="CenterOwner" MinWidth="540" MinHeight="355" MaxWidth="800" MaxHeight="500">
 
+
     <Grid Margin="14">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>

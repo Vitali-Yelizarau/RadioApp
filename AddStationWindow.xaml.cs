@@ -9,6 +9,7 @@ using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 
 namespace RadioApp
 {
@@ -112,6 +113,7 @@ namespace RadioApp
         public AddStationWindow()
         {
             InitializeComponent();
+            InitializeTooltips();
 
             _mode = StationWindowMode.Add;
 
@@ -1024,6 +1026,61 @@ namespace RadioApp
                     Log.Error(ex, "Failed to open help URL: {Url}", repoUrl);
                 }
             }
+        }
+
+        private void InitializeTooltips()
+        {
+            SetTooltip(PageUrlTextBox,
+                "Paste the web page of the radio station — the page that has the Play button in your browser.\n" +
+                "\n" +
+                "Example: https://onlineradiobox.com/mx/radioranchito/\n" +
+                "\n" +
+                "This is NOT the direct audio stream URL. After the button \"Find stream URL\" was clicked, the parser will analyse this page and try to discover the underlying stream automatically."
+            );
+
+            SetTooltip(TitleTextBox,
+                "The name that will be shown in your saved stations list.\n" +
+                "\n" +
+                "You can type it manually, or leave it empty — after a successful parse it will be auto-filled from the page metadata (Open Graph tags, page title) or, as a fallback, from the ICY stream headers.\n" +
+                "\n" +
+                "If both auto-detection and your input are empty, the station will be saved as \"New radio station\" and you can edit it later."
+            );
+
+            SetTooltip(StreamUrlTextBox,
+                "The direct audio stream URL that VLC will open for playback.\n" +
+                "\n" +
+                "This is NOT the same as the Radio page URL — it usually points to a different server (for example: https://streamingcwsradio30.com:7005/stream.mp3).\n" +
+                "\n" +
+                "Auto-filled after a successful parse. If you know the stream URL already, you can paste it here directly and skip the page parsing.\n" +
+                "\n" +
+                "Supported formats:\n" +
+                "  • Direct audio: MP3, AAC, AACP, OGG, Opus\n" +
+                "  • Icecast / Shoutcast endpoints (with or without trailing /stream, /listen, /;)\n" +
+                "  • HLS playlists (.m3u8)\n" +
+                "\n" +
+                "NOT supported: .pls playlist files (these need to be opened manually to copy the inner stream URL).\n" +
+                "\n" +
+                "Click the ? button to the right for a step-by-step guide on finding stream URLs manually with browser DevTools."
+            );
+
+            SetTooltip(DescriptionTextBox,
+                "Free-form text shown together with the station. Optional.\n" +
+                "\n" +
+                "After parsing, this field is auto-filled with two kinds of info:\n" +
+                "  • A human-readable description from the page (Open Graph, meta description, page title)\n" +
+                "  • Technical details from the parser: content type, extraction method, and alternative stream candidates if multiple were found\n" +
+                "\n" +
+                "If the auto-detected Stream URL doesn't play, look here for \"Also possible stream candidates:\" — you can copy one of those URLs into the Stream URL field and try again.\n" +
+                "\n" +
+                "You can keep, edit, or clear this text — it doesn't affect playback."
+            );
+        }
+
+        private static void SetTooltip(Control control, string text)
+        {
+            control.ToolTip = text;
+            ToolTipService.SetShowDuration(control, 30000);
+            ToolTipService.SetInitialShowDelay(control, 500);
         }
     }
 }
