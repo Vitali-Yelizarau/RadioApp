@@ -19,6 +19,7 @@ namespace RadioApp.Services
 
         private bool _isInitialized;
         private string _currentStreamUrl;
+        private int _lastLoggedBufferingCache = -1;
 
         // "Now playing" track title is polled periodically instead of relying solely on
         // Media.MetaChanged, because that event is not reliably re-raised by LibVLC when
@@ -188,7 +189,7 @@ namespace RadioApp.Services
 
                 StopInternal();
 
-                System.Threading.Thread.Sleep(500);
+                Thread.Sleep(500);
 
                 _currentStreamUrl = streamUrl;
 
@@ -425,9 +426,28 @@ namespace RadioApp.Services
 
         private void MediaPlayer_Buffering(object sender, MediaPlayerBufferingEventArgs e)
         {
+            //Log each 5 percents to reduce the length of the log file,
+            //and also avoid logging the same value multiple times in a row
+            //(since VLC can report the same cache value repeatedly during buffering).
+            const int DIVISOR_VALUE__FOR_LOGGER = 5;
+
+            int cache = (int)Math.Round(e.Cache);
+
+            if (cache % DIVISOR_VALUE__FOR_LOGGER != 0)
+            {
+                return;
+            }
+
+            if (cache == _lastLoggedBufferingCache)
+            {
+                return;
+            }
+
+            _lastLoggedBufferingCache = cache;
+
             Log.Debug(
                 "VLC buffering. Cache: {CachePercent}. StreamUrl: {StreamUrl}",
-                Math.Round(e.Cache),
+                cache,
                 _currentStreamUrl
             );
         }

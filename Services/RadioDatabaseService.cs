@@ -44,8 +44,9 @@ namespace RadioApp.Services
                 (
                     Id INTEGER PRIMARY KEY AUTOINCREMENT,
                     MediaItemId INTEGER NOT NULL,
-                    WhenPlayed DATETIME NOT NULL,
-                    TrackName TEXT,
+                    EventTime DATETIME NOT NULL,
+                    EventType TEXT NOT NULL DEFAULT 'Started',
+                    Comment TEXT,
                     FOREIGN KEY (MediaItemId) REFERENCES MediaItems(Id) ON DELETE CASCADE
                 );
             ";
@@ -58,6 +59,10 @@ namespace RadioApp.Services
                     "PlayCount",
                     "INTEGER NOT NULL DEFAULT 0"
                 );
+
+                EnsurePlayHistoryItemsMigrated(connection);
+
+                DropObsoletePlaybackEventTypesTableIfExists(connection);
             }
         }
 
@@ -93,6 +98,124 @@ namespace RadioApp.Services
             }
         }
 
+        /// <summary>
+        /// Migrates the PlayHistoryItems schema across its three historical shapes:
+        ///   1. WhenPlayed (DATETIME) only
+        ///   2. EventTime (DATETIME) + EventType (INTEGER: 0/1/2)
+        ///   3. EventTime (DATETIME) + EventType (TEXT: "Started"/"Stopped"/"Error"/"TrackChanged")
+        /// Safe to call on every startup; detects what's already in place and only
+        /// does the missing work.
+        /// </summary>
+        private void EnsurePlayHistoryItemsMigrated(SQLiteConnection connection)
+        {
+            bool hasEventTime = ColumnExists(connection, "PlayHistoryItems", "EventTime");
+            bool hasWhenPlayed = ColumnExists(connection, "PlayHistoryItems", "WhenPlayed");
+            bool hasEventType = ColumnExists(connection, "PlayHistoryItems", "EventType");
+
+            if (hasWhenPlayed && !hasEventTime)
+            {
+                using (var renameCommand = connection.CreateCommand())
+                {
+                    // Supported on SQLite 3.25.0+ (bundled System.Data.SQLite is recent enough).
+                    renameCommand.CommandText =
+                        "ALTER TABLE PlayHistoryItems RENAME COLUMN WhenPlayed TO EventTime;";
+
+                    renameCommand.ExecuteNonQuery();
+                }
+            }
+
+            if (!hasEventType)
+            {
+                using (var addColumnCommand = connection.CreateCommand())
+                {
+                    addColumnCommand.CommandText =
+                        "ALTER TABLE PlayHistoryItems ADD COLUMN EventType TEXT NOT NULL DEFAULT 'Started';";
+
+                    addColumnCommand.ExecuteNonQuery();
+                }
+            }
+
+            // Backfill rows from the brief intermediate schema where EventType was
+            // stored as an integer (0/1/2). SQLite's INTEGER column affinity still
+            // accepts TEXT, so this is a plain data fix, not a schema change.
+            using (var backfillCommand = connection.CreateCommand())
+            {
+                backfillCommand.CommandText = @"
+                    UPDATE PlayHistoryItems
+                    SET EventType = CASE EventType
+                        WHEN '0' THEN 'Started'
+                        WHEN '1' THEN 'Stopped'
+                        WHEN '2' THEN 'TrackChanged'
+                        ELSE EventType
+                    END
+                    WHERE EventType IN ('0', '1', '2');
+                ";
+
+                backfillCommand.ExecuteNonQuery();
+            }
+
+            bool hasComment = ColumnExists(connection, "PlayHistoryItems", "Comment");
+            bool hasTrackName = ColumnExists(connection, "PlayHistoryItems", "TrackName");
+
+            if (hasTrackName && !hasComment)
+            {
+                using (var renameCommand = connection.CreateCommand())
+                {
+                    renameCommand.CommandText =
+                        "ALTER TABLE PlayHistoryItems RENAME COLUMN TrackName TO Comment;";
+
+                    renameCommand.ExecuteNonQuery();
+                }
+            }
+            else if (!hasComment)
+            {
+                using (var addColumnCommand = connection.CreateCommand())
+                {
+                    addColumnCommand.CommandText =
+                        "ALTER TABLE PlayHistoryItems ADD COLUMN Comment TEXT;";
+
+                    addColumnCommand.ExecuteNonQuery();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Removes the PlaybackEventTypes lookup table from an earlier iteration
+        /// of this feature. It's no longer needed now that EventType is stored as
+        /// self-describing text directly in PlayHistoryItems.
+        /// </summary>
+        private void DropObsoletePlaybackEventTypesTableIfExists(SQLiteConnection connection)
+        {
+            using (var dropCommand = connection.CreateCommand())
+            {
+                dropCommand.CommandText = "DROP TABLE IF EXISTS PlaybackEventTypes;";
+                dropCommand.ExecuteNonQuery();
+            }
+        }
+
+        private bool ColumnExists(SQLiteConnection connection, string tableName, string columnName)
+        {
+            using (var checkCommand = connection.CreateCommand())
+            {
+                checkCommand.CommandText = "PRAGMA table_info(" + tableName + ");";
+
+                using (SQLiteDataReader reader = checkCommand.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        string existingColumnName = reader["name"].ToString();
+
+                        if (existingColumnName.Equals(columnName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+
         public async Task<List<MediaItem>> GetEnabledMediaItems()
         {
             using (var db = new RadioDbContext())
@@ -105,16 +228,23 @@ namespace RadioApp.Services
             }
         }
 
-
-        public async Task AddPlayHistoryAsync(int mediaItemId, string trackName)
+        /// <summary>
+        /// Records a playback event (started, stopped, error, or track changed) in
+        /// the play history table. The event type is stored as plain text.
+        /// </summary>
+        public async Task LogPlaybackEventAsync(
+            int mediaItemId,
+            PlaybackEventType eventType,
+            string comment)
         {
             using (var db = new RadioDbContext())
             {
                 db.PlayHistoryItems.Add(new PlayHistoryItem
                 {
                     MediaItemId = mediaItemId,
-                    TrackName = trackName ?? string.Empty,
-                    WhenPlayed = System.DateTime.Now
+                    EventType = eventType.ToString(),
+                    Comment = comment ?? string.Empty,
+                    EventTime = DateTime.Now
                 });
 
                 await db.SaveChangesAsync();
@@ -127,7 +257,7 @@ namespace RadioApp.Services
             {
                 return db.PlayHistoryItems
                          .Include(x => x.MediaItem)
-                         .OrderByDescending(x => x.WhenPlayed)
+                         .OrderByDescending(x => x.EventTime)
                          .Take(count)
                          .ToList();
             }
@@ -175,22 +305,6 @@ namespace RadioApp.Services
                 item.Description = updatedItem.Description ?? string.Empty;
                 item.StreamUrl = updatedItem.StreamUrl ?? string.Empty;
 
-                db.SaveChanges();
-            }
-        }
-
-        public void DeleteMediaItem(int mediaItemId)
-        {
-            using (var db = new RadioDbContext())
-            {
-                var item = db.MediaItems.FirstOrDefault(x => x.Id == mediaItemId);
-
-                if (item == null)
-                {
-                    return;
-                }
-
-                db.MediaItems.Remove(item);
                 db.SaveChanges();
             }
         }
@@ -326,6 +440,22 @@ namespace RadioApp.Services
                     "UPDATE MediaItems SET PlayCount = PlayCount + 1 WHERE Id = @p0",
                     mediaItemId
                 );
+            }
+        }
+
+        public void DeleteMediaItem(int mediaItemId)
+        {
+            using (var db = new RadioDbContext())
+            {
+                var item = db.MediaItems.FirstOrDefault(x => x.Id == mediaItemId);
+
+                if (item == null)
+                {
+                    return;
+                }
+
+                db.MediaItems.Remove(item);
+                db.SaveChanges();
             }
         }
     }

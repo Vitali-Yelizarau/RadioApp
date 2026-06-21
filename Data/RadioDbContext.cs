@@ -69,7 +69,12 @@ namespace RadioApp.Data
                 .HasKey(x => x.Id);
 
             modelBuilder.Entity<PlayHistoryItem>()
-                .Property(x => x.TrackName)
+                .Property(x => x.EventType)
+                .IsRequired()
+                .HasMaxLength(50);
+
+            modelBuilder.Entity<PlayHistoryItem>()
+                .Property(x => x.Comment)
                 .HasMaxLength(500);
 
             modelBuilder.Entity<PlayHistoryItem>()

@@ -479,6 +479,18 @@ namespace RadioApp
         {
             Dispatcher.Invoke(() =>
             {
+                // If a station was actually playing before this failure, record that
+                // its playback session ended, since PlaybackStopped may not fire reliably
+                // (or station id may already be cleared) on hard errors.
+                if (_currentlyPlayingStation != null)
+                {
+                    LogPlaybackEventFireAndForget(
+                        _currentlyPlayingStation.Id,
+                        PlaybackEventType.Stopped,
+                        string.Empty
+                    );
+                }
+
                 _isPlaying = false;
                 _isPaused = false;
                 _currentlyPlayingStation = null;
@@ -501,6 +513,15 @@ namespace RadioApp
             Dispatcher.Invoke(() =>
             {
                 NowPlayingTrackTextBlock.Text = "♪ " + trackTitle;
+
+                if (_currentlyPlayingStation != null)
+                {
+                    LogPlaybackEventFireAndForget(
+                        _currentlyPlayingStation.Id,
+                        PlaybackEventType.TrackChanged,
+                        trackTitle
+                    );
+                }
             });
         }
 
@@ -581,6 +602,17 @@ namespace RadioApp
                 return;
             }
 
+            // If another station is currently playing, record that its session ended
+            // before we start the new one.
+            if (_currentlyPlayingStation != null && _currentlyPlayingStation.Id != station.Id)
+            {
+                LogPlaybackEventFireAndForget(
+                    _currentlyPlayingStation.Id,
+                    PlaybackEventType.Stopped,
+                    string.Empty
+                );
+            }
+
             // Clear the previous station's track title immediately so stale info
             // isn't shown while the new stream's metadata hasn't arrived yet.
             NowPlayingTrackTextBlock.Text = "";
@@ -604,6 +636,12 @@ namespace RadioApp
                 _currentlyPlayingStation = station;
                 _isPlaying = true;
                 _isPaused = false;
+
+                LogPlaybackEventFireAndForget(
+                    station.Id,
+                    PlaybackEventType.Started,
+                    string.Empty
+                );
 
                 UpdatePlaybackUi();
             }
@@ -692,6 +730,15 @@ namespace RadioApp
         {
             try
             {
+                if (_currentlyPlayingStation != null)
+                {
+                    LogPlaybackEventFireAndForget(
+                        _currentlyPlayingStation.Id,
+                        PlaybackEventType.Stopped,
+                        string.Empty
+                    );
+                }
+
                 _playbackService.Stop();
 
                 _isPlaying = false;
@@ -705,6 +752,33 @@ namespace RadioApp
             catch (Exception ex)
             {
                 Log.Warning(ex, "Failed to stop current station.");
+            }
+        }
+
+        /// <summary>
+        /// Fires off a play-history log write without blocking or awaiting it from the
+        /// UI thread. Any failure is logged but never surfaced to the user, since play
+        /// history is a non-critical, best-effort feature.
+        /// </summary>
+        private void LogPlaybackEventFireAndForget(int mediaItemId, PlaybackEventType eventType, string trackName)
+        {
+            _ = LogPlaybackEventSafeAsync(mediaItemId, eventType, trackName);
+        }
+
+        private async Task LogPlaybackEventSafeAsync(int mediaItemId, PlaybackEventType eventType, string trackName)
+        {
+            try
+            {
+                await _databaseService.LogPlaybackEventAsync(mediaItemId, eventType, trackName);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(
+                    ex,
+                    "Failed to log playback event. MediaItemId: {MediaItemId}, EventType: {EventType}",
+                    mediaItemId,
+                    eventType
+                );
             }
         }
 
