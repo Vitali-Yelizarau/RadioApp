@@ -1064,5 +1064,99 @@ namespace RadioApp
         {
             await DeleteSelectedStationWithConfirmationAsync();
         }
+
+        private async void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            // Don't hijack keys while the user is typing into a text box anywhere
+            // in the window (defensive, even though MainWindow currently has none).
+            if (e.OriginalSource is TextBox)
+            {
+                return;
+            }
+
+            switch (e.Key)
+            {
+                case Key.Delete:
+                    e.Handled = true;
+                    await DeleteSelectedStationWithConfirmationAsync();
+                    break;
+
+                case Key.Space:
+                    e.Handled = true;
+                    TogglePlayPauseFromShortcut();
+                    break;
+
+                case Key.Right:
+                    e.Handled = true;
+                    await SwitchStationAsync(1);
+                    break;
+
+                case Key.Left:
+                    e.Handled = true;
+                    await SwitchStationAsync(-1);
+                    break;
+
+                case Key.OemPlus:
+                case Key.Add:
+                    e.Handled = true;
+                    AdjustVolume(5);
+                    break;
+
+                case Key.OemMinus:
+                case Key.Subtract:
+                    e.Handled = true;
+                    AdjustVolume(-5);
+                    break;
+            }
+        }
+
+        private void TogglePlayPauseFromShortcut()
+        {
+            MediaItem selected = SelectedStation;
+
+            if (selected == null)
+            {
+                return;
+            }
+
+            if (_currentlyPlayingStation != null &&
+                _currentlyPlayingStation.Id == selected.Id)
+            {
+                if (_isPlaying)
+                {
+                    PauseCurrentStation();
+                    return;
+                }
+
+                if (_isPaused)
+                {
+                    ResumeCurrentStation();
+                    return;
+                }
+            }
+
+            _ = RunPlaybackOperationAsync(async () =>
+            {
+                await PlayStationAsync(selected);
+            });
+        }
+
+        private void AdjustVolume(int delta)
+        {
+            double newValue = VolumeSlider.Value + delta;
+
+            if (newValue < VolumeSlider.Minimum)
+            {
+                newValue = VolumeSlider.Minimum;
+            }
+
+            if (newValue > VolumeSlider.Maximum)
+            {
+                newValue = VolumeSlider.Maximum;
+            }
+
+            VolumeSlider.Value = newValue;
+            // VolumeSlider_ValueChanged already updates the label and calls SetVolume
+        }
     }
 }
