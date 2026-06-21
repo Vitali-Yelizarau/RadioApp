@@ -3,6 +3,7 @@ using Serilog;
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace RadioApp.Services
@@ -19,10 +20,17 @@ namespace RadioApp.Services
         private bool _isInitialized;
         private string _currentStreamUrl;
 
+        // "Now playing" track title is polled periodically instead of relying solely on
+        // Media.MetaChanged, because that event is not reliably re-raised by LibVLC when
+        // the ICY StreamTitle changes mid-stream (it mainly fires once during initial parse).
+        private Timer _nowPlayingPollTimer;
+        private string _lastKnownTrackTitle;
+
         public event EventHandler PlaybackStarted;
         public event EventHandler PlaybackPaused;
         public event EventHandler PlaybackStopped;
         public event EventHandler<string> PlaybackFailed;
+        public event EventHandler<string> NowPlayingTrackChanged;
 
         public bool IsPlaying
         {
@@ -119,6 +127,8 @@ namespace RadioApp.Services
             {
                 try
                 {
+                    StopNowPlayingPolling();
+
                     if (_mediaPlayer != null)
                     {
                         _mediaPlayer.Playing -= MediaPlayer_Playing;
@@ -199,12 +209,19 @@ namespace RadioApp.Services
                 //_currentMedia.AddOption(":http-continuous");
                 _currentMedia.AddOption(":http-user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36");
 
+                // Kept as a secondary signal: fires reliably on initial parse, occasionally
+                // on later updates depending on stream/demuxer. The polling timer below is
+                // the primary, reliable mechanism for live ICY "now playing" updates.
+                _currentMedia.MetaChanged += CurrentMedia_MetaChanged;
+
                 bool started = _mediaPlayer.Play(_currentMedia);
 
                 if (!started)
                 {
                     throw new InvalidOperationException("LibVLC could not start playback.");
                 }
+
+                StartNowPlayingPolling();
 
                 watch.Stop();
 
@@ -270,6 +287,8 @@ namespace RadioApp.Services
         {
             try
             {
+                StopNowPlayingPolling();
+
                 if (_mediaPlayer != null && _mediaPlayer.IsPlaying)
                 {
                     _mediaPlayer.Stop();
@@ -294,6 +313,7 @@ namespace RadioApp.Services
 
             try
             {
+                _currentMedia.MetaChanged -= CurrentMedia_MetaChanged;
                 _currentMedia.Dispose();
             }
             catch (Exception ex)
@@ -304,6 +324,72 @@ namespace RadioApp.Services
             {
                 _currentMedia = null;
             }
+        }
+
+        private void StartNowPlayingPolling()
+        {
+            StopNowPlayingPolling();
+
+            _lastKnownTrackTitle = null;
+
+            _nowPlayingPollTimer = new Timer(
+                callback: _ => PollNowPlayingTrack(),
+                state: null,
+                dueTime: TimeSpan.FromSeconds(3),
+                period: TimeSpan.FromSeconds(5)
+            );
+        }
+
+        private void StopNowPlayingPolling()
+        {
+            _nowPlayingPollTimer?.Dispose();
+            _nowPlayingPollTimer = null;
+        }
+
+        private void PollNowPlayingTrack()
+        {
+            //Log.Warning("PollNowPlayingTrack tick fired."); // temporary diagnostic line
+
+            Media media = _currentMedia;
+
+            if (media == null)
+            {
+                Log.Warning("PollNowPlayingTrack: _currentMedia is null.");
+                return;
+            }
+
+            string trackTitle;
+
+            try
+            {
+                trackTitle = media.Meta(MetadataType.NowPlaying);
+                //Log.Warning("PollNowPlayingTrack: raw value = {Value}", trackTitle);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Failed to read NowPlaying metadata during poll.");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(trackTitle))
+            {
+                return;
+            }
+
+            if (string.Equals(trackTitle, _lastKnownTrackTitle, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _lastKnownTrackTitle = trackTitle;
+
+            Log.Information(
+                "VLC now playing track changed (polled). Track: {Track}, StreamUrl: {StreamUrl}",
+                trackTitle,
+                _currentStreamUrl
+            );
+
+            NowPlayingTrackChanged?.Invoke(this, trackTitle);
         }
 
         private void MediaPlayer_Playing(object sender, EventArgs e)
@@ -356,6 +442,53 @@ namespace RadioApp.Services
             );
 
             PlaybackFailed?.Invoke(this, message);
+        }
+
+        private void CurrentMedia_MetaChanged(object sender, MediaMetaChangedEventArgs e)
+        {
+            string rawValue;
+
+            try
+            {
+                rawValue = _currentMedia?.Meta(e.MetadataType);
+            }
+            catch (Exception ex)
+            {
+                Log.Debug(ex, "Failed to read changed metadata. MetadataType: {MetadataType}", e.MetadataType);
+                return;
+            }
+
+            Log.Debug(
+                "VLC media meta changed (event). MetadataType: {MetadataType}, Value: {Value}, StreamUrl: {StreamUrl}",
+                e.MetadataType,
+                rawValue,
+                _currentStreamUrl
+            );
+
+            if (e.MetadataType != MetadataType.NowPlaying)
+            {
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(rawValue))
+            {
+                return;
+            }
+
+            if (string.Equals(rawValue, _lastKnownTrackTitle, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _lastKnownTrackTitle = rawValue;
+
+            Log.Information(
+                "VLC now playing track changed (event). Track: {Track}, StreamUrl: {StreamUrl}",
+                rawValue,
+                _currentStreamUrl
+            );
+
+            NowPlayingTrackChanged?.Invoke(this, rawValue);
         }
 
         private void LibVlc_Log(object sender, LogEventArgs e)

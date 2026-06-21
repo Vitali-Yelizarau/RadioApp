@@ -62,6 +62,7 @@ namespace RadioApp
             _playbackService.PlaybackPaused += PlaybackService_PlaybackPaused;
             _playbackService.PlaybackStopped += PlaybackService_PlaybackStopped;
             _playbackService.PlaybackFailed += PlaybackService_PlaybackFailed;
+            _playbackService.NowPlayingTrackChanged += PlaybackService_NowPlayingTrackChanged;
         }
 
         private async Task MainWindow_LoadedAsync(object sender, RoutedEventArgs e)
@@ -495,6 +496,14 @@ namespace RadioApp
             });
         }
 
+        private void PlaybackService_NowPlayingTrackChanged(object sender, string trackTitle)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                NowPlayingTrackTextBlock.Text = "♪ " + trackTitle;
+            });
+        }
+
         protected override void OnClosed(EventArgs e)
         {
             try
@@ -503,11 +512,13 @@ namespace RadioApp
                 _playbackService.PlaybackPaused -= PlaybackService_PlaybackPaused;
                 _playbackService.PlaybackStopped -= PlaybackService_PlaybackStopped;
                 _playbackService.PlaybackFailed -= PlaybackService_PlaybackFailed;
+                _playbackService.NowPlayingTrackChanged -= PlaybackService_NowPlayingTrackChanged;
+
+                _sleepPreventionService.AllowSleep();
 
                 StopCurrentStation();
 
                 _playbackService.Dispose();
-                _sleepPreventionService.AllowSleep();
             }
             catch (Exception ex)
             {
@@ -569,6 +580,10 @@ namespace RadioApp
 
                 return;
             }
+
+            // Clear the previous station's track title immediately so stale info
+            // isn't shown while the new stream's metadata hasn't arrived yet.
+            NowPlayingTrackTextBlock.Text = "";
 
             try
             {
@@ -760,6 +775,8 @@ namespace RadioApp
             {
                 PlayPauseButton.Content = "▶";
                 NowPlayingTextBlock.Text = "Now playing:";
+                NowPlayingTrackTextBlock.Text = "";
+                NowPlayingGenreTextBlock.Text = "";
                 return;
             }
 
@@ -767,6 +784,9 @@ namespace RadioApp
             {
                 PlayPauseButton.Content = "⏸";
                 NowPlayingTextBlock.Text = "Now playing: " + _currentlyPlayingStation.Title;
+                NowPlayingGenreTextBlock.Text = string.IsNullOrWhiteSpace(_currentlyPlayingStation.Genre)
+                    ? ""
+                    : "Genre: " + _currentlyPlayingStation.Genre;
                 return;
             }
 
@@ -779,6 +799,8 @@ namespace RadioApp
 
             PlayPauseButton.Content = "▶";
             NowPlayingTextBlock.Text = "Now playing:";
+            NowPlayingTrackTextBlock.Text = "";
+            NowPlayingGenreTextBlock.Text = "";
         }
 
         private async Task SwitchStationAsync(int direction)
