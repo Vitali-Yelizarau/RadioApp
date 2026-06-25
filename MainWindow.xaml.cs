@@ -10,6 +10,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace RadioApp
 {
@@ -29,6 +30,37 @@ namespace RadioApp
         private bool _isPlaying;
         private bool _isPaused;
         private bool _isChangingStation;
+
+        // ---- Connectivity / auto-reconnect ----
+        private readonly ConnectivityService _connectivityService = new ConnectivityService();
+
+        private DispatcherTimer _connectivityMonitorTimer;   // polls while online to detect drops
+        private DispatcherTimer _reconnectCountdownTimer;     // 1s tick: countdown + retry trigger
+        private DispatcherTimer _connectedBadgeTimer;         // hides the green "Connected!" badge
+
+        private enum ConnectivityUiState
+        {
+            Hidden,
+            Connecting,
+            Connected,
+            Reconnecting
+        }
+
+        private ConnectivityUiState _connectivityState = ConnectivityUiState.Hidden;
+        private bool _isCheckingConnectivity;
+        private int _reconnectBackoffStep;
+        private int _reconnectSecondsRemaining;
+        private MediaItem _stationToResumeAfterReconnect;
+
+        private Brush _connectingBrush;
+        private Brush _connectedBrush;
+        private Brush _reconnectingBrush;
+        private Brush _bufferingBrush;
+
+        private DispatcherTimer _bufferingHideTimer;   // hides "Buffering 100%" after a short delay
+        private bool _isBuffering;
+        private int _bufferingPercent;
+
         private MediaItem SelectedStation
         {
             get
@@ -56,6 +88,8 @@ namespace RadioApp
             _databaseService = new RadioDatabaseService();
             _playlist = new List<MediaItem>();
 
+            InitializeConnectivityTimers();
+
             Loaded += async (s, e) => await MainWindow_LoadedAsync(s, e);
 
             _playbackService.PlaybackStarted += PlaybackService_PlaybackStarted;
@@ -63,6 +97,7 @@ namespace RadioApp
             _playbackService.PlaybackStopped += PlaybackService_PlaybackStopped;
             _playbackService.PlaybackFailed += PlaybackService_PlaybackFailed;
             _playbackService.NowPlayingTrackChanged += PlaybackService_NowPlayingTrackChanged;
+            _playbackService.BufferingProgressChanged += PlaybackService_BufferingProgressChanged;
         }
 
         private async Task MainWindow_LoadedAsync(object sender, RoutedEventArgs e)
@@ -89,6 +124,9 @@ namespace RadioApp
                 }
 
                 _ = _playbackService.InitializeAsync();
+
+                // Begin watching internet connectivity (status bar + auto-reconnect).
+                _ = StartConnectivityMonitoringAsync();
             }
             catch (Exception ex)
             {
@@ -471,6 +509,7 @@ namespace RadioApp
 
                 _sleepPreventionService.AllowSleep();
 
+                ClearBuffering();
                 UpdatePlaybackUi();
             });
         }
@@ -479,6 +518,25 @@ namespace RadioApp
         {
             Dispatcher.Invoke(() =>
             {
+                ClearBuffering();
+
+                // If the connection just dropped, a frozen stream can also surface here
+                // as a hard error. When we are already coordinating a reconnect, swallow
+                // the error quietly instead of interrupting the user with a dialog. The
+                // Stopped/"Connection lost" event was already recorded in EnterReconnecting,
+                // so we don't log another one here.
+                if (_connectivityState == ConnectivityUiState.Reconnecting ||
+                    _connectivityState == ConnectivityUiState.Connecting)
+                {
+                    _isPlaying = false;
+                    _isPaused = false;
+
+                    _sleepPreventionService.AllowSleep();
+
+                    UpdatePlaybackUi();
+                    return;
+                }
+
                 // If a station was actually playing before this failure, record that
                 // its playback session ended, since PlaybackStopped may not fire reliably
                 // (or station id may already be cleared) on hard errors.
@@ -529,11 +587,16 @@ namespace RadioApp
         {
             try
             {
+                _connectivityMonitorTimer?.Stop();
+                _reconnectCountdownTimer?.Stop();
+                _connectedBadgeTimer?.Stop();
+
                 _playbackService.PlaybackStarted -= PlaybackService_PlaybackStarted;
                 _playbackService.PlaybackPaused -= PlaybackService_PlaybackPaused;
                 _playbackService.PlaybackStopped -= PlaybackService_PlaybackStopped;
                 _playbackService.PlaybackFailed -= PlaybackService_PlaybackFailed;
                 _playbackService.NowPlayingTrackChanged -= PlaybackService_NowPlayingTrackChanged;
+                _playbackService.BufferingProgressChanged -= PlaybackService_BufferingProgressChanged;
 
                 _sleepPreventionService.AllowSleep();
 
@@ -583,7 +646,7 @@ namespace RadioApp
             }
         }
 
-        private async Task PlayStationAsync(MediaItem station)
+        private async Task PlayStationAsync(MediaItem station, string startedComment = "")
         {
             if (station == null)
             {
@@ -640,7 +703,7 @@ namespace RadioApp
                 LogPlaybackEventFireAndForget(
                     station.Id,
                     PlaybackEventType.Started,
-                    string.Empty
+                    startedComment
                 );
 
                 UpdatePlaybackUi();
@@ -1157,6 +1220,436 @@ namespace RadioApp
 
             VolumeSlider.Value = newValue;
             // VolumeSlider_ValueChanged already updates the label and calls SetVolume
+        }
+
+        // ============================================================
+        //  Connectivity status + automatic reconnect
+        // ============================================================
+        //
+        //  Two concerns are kept separate:
+        //    (a) Is there internet at all? -> drives the status bar text/colour.
+        //    (b) Was a station playing when it dropped? -> drives auto-resume.
+        //
+        //  Detection is by ACTIVE probing (ConnectivityService), because LibVLC
+        //  often just stalls silently on a network drop without raising an error.
+        //
+        //  States:
+        //    Connecting   - amber "Connecting to the internet..." (startup, or
+        //                   offline while nothing was playing). Retries silently.
+        //    Connected    - green "Connected!" shown for 5s, then hidden.
+        //    Reconnecting - red "Reconnect in X seconds" + "Connect now" button,
+        //                   shown when the connection drops mid-playback. Backoff
+        //                   schedule 3, 6, 9, 12, 15, 15, ... seconds (unbounded),
+        //                   auto-resumes the last station once back online.
+        // ============================================================
+
+        private void InitializeConnectivityTimers()
+        {
+            var connecting = new SolidColorBrush(Color.FromRgb(0xC8, 0x96, 0x00)); // amber
+            connecting.Freeze();
+            _connectingBrush = connecting;
+
+            var connected = new SolidColorBrush(Color.FromRgb(0x2E, 0x8B, 0x57));  // green
+            connected.Freeze();
+            _connectedBrush = connected;
+
+            var reconnecting = new SolidColorBrush(Color.FromRgb(0xC0, 0x39, 0x2B)); // red
+            reconnecting.Freeze();
+            _reconnectingBrush = reconnecting;
+
+            _connectivityMonitorTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(6)
+            };
+            _connectivityMonitorTimer.Tick += ConnectivityMonitorTimer_Tick;
+
+            _reconnectCountdownTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(1)
+            };
+            _reconnectCountdownTimer.Tick += ReconnectCountdownTimer_Tick;
+
+            _connectedBadgeTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(5)
+            };
+            _connectedBadgeTimer.Tick += ConnectedBadgeTimer_Tick;
+
+            var buffering = new SolidColorBrush(Color.FromRgb(0x1F, 0x4E, 0x8C)); // dark blue
+            buffering.Freeze();
+            _bufferingBrush = buffering;
+
+            _bufferingHideTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(3)
+            };
+            _bufferingHideTimer.Tick += BufferingHideTimer_Tick;
+        }
+
+        private async Task StartConnectivityMonitoringAsync()
+        {
+            SetConnectivityStatus(ConnectivityUiState.Connecting);
+
+            bool online = await CheckInternetSafeAsync();
+
+            if (online)
+            {
+                EnterConnectedState();
+            }
+            else
+            {
+                EnterConnectingRetry();
+            }
+        }
+
+        /// <summary>
+        /// Runs a connectivity probe with a guard flag so overlapping checks (from
+        /// the monitor tick, the countdown tick, and the "Connect now" button) never
+        /// stack up. Never throws.
+        /// </summary>
+        private async Task<bool> CheckInternetSafeAsync()
+        {
+            _isCheckingConnectivity = true;
+
+            try
+            {
+                return await _connectivityService.CheckInternetAsync();
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Connectivity check failed unexpectedly.");
+                return false;
+            }
+            finally
+            {
+                _isCheckingConnectivity = false;
+            }
+        }
+
+        private void StartConnectivityMonitor()
+        {
+            if (_connectivityMonitorTimer != null && !_connectivityMonitorTimer.IsEnabled)
+            {
+                _connectivityMonitorTimer.Start();
+            }
+        }
+
+        private void StopConnectivityMonitor()
+        {
+            _connectivityMonitorTimer?.Stop();
+        }
+
+        private async void ConnectivityMonitorTimer_Tick(object sender, EventArgs e)
+        {
+            // Only meaningful when we believe we are online.
+            if (_connectivityState == ConnectivityUiState.Reconnecting ||
+                _connectivityState == ConnectivityUiState.Connecting)
+            {
+                return;
+            }
+
+            if (_isCheckingConnectivity)
+            {
+                return;
+            }
+
+            bool online = await CheckInternetSafeAsync();
+
+            if (online)
+            {
+                return;
+            }
+
+            StopConnectivityMonitor();
+
+            if (_currentlyPlayingStation != null && _isPlaying)
+            {
+                EnterReconnecting(_currentlyPlayingStation);
+            }
+            else
+            {
+                EnterConnectingRetry();
+            }
+        }
+
+        private void EnterConnectedState()
+        {
+            _reconnectCountdownTimer.Stop();
+            _reconnectBackoffStep = 0;
+
+            SetConnectivityStatus(ConnectivityUiState.Connected);
+
+            // Show the green badge briefly, then hide it.
+            _connectedBadgeTimer.Stop();
+            _connectedBadgeTimer.Start();
+
+            // Keep watching for future drops.
+            StartConnectivityMonitor();
+        }
+
+        private void ConnectedBadgeTimer_Tick(object sender, EventArgs e)
+        {
+            _connectedBadgeTimer.Stop();
+
+            if (_connectivityState == ConnectivityUiState.Connected)
+            {
+                SetConnectivityStatus(ConnectivityUiState.Hidden);
+            }
+        }
+
+        private void EnterConnectingRetry()
+        {
+            StopConnectivityMonitor();
+
+            _stationToResumeAfterReconnect = null;
+            _reconnectBackoffStep = 0;
+
+            SetConnectivityStatus(ConnectivityUiState.Connecting);
+
+            _reconnectSecondsRemaining = 5;
+
+            if (!_reconnectCountdownTimer.IsEnabled)
+            {
+                _reconnectCountdownTimer.Start();
+            }
+        }
+
+        private void EnterReconnecting(MediaItem station)
+        {
+            StopConnectivityMonitor();
+
+            _stationToResumeAfterReconnect = station;
+            _reconnectBackoffStep = 0;
+            _reconnectSecondsRemaining = Math.Min(3 * (_reconnectBackoffStep + 1), 15); // 3
+
+            SetConnectivityStatus(ConnectivityUiState.Reconnecting, _reconnectSecondsRemaining);
+
+            if (!_reconnectCountdownTimer.IsEnabled)
+            {
+                _reconnectCountdownTimer.Start();
+            }
+
+            // Record the interruption in play history (Stopped + reason) and in the log.
+            // This is the only place the silent network drop gets persisted, since VLC
+            // frequently stalls without raising an error of its own.
+            LogPlaybackEventFireAndForget(
+                station.Id,
+                PlaybackEventType.Stopped,
+                "Connection lost / No internet connection"
+            );
+
+            Log.Warning(
+                "Internet connection lost while playing station {Id} ({Title}). Reconnecting...",
+                station.Id,
+                station.Title
+            );
+        }
+
+        private async void ReconnectCountdownTimer_Tick(object sender, EventArgs e)
+        {
+            if (_reconnectSecondsRemaining > 1)
+            {
+                _reconnectSecondsRemaining--;
+
+                if (_connectivityState == ConnectivityUiState.Reconnecting)
+                {
+                    SetConnectivityStatus(ConnectivityUiState.Reconnecting, _reconnectSecondsRemaining);
+                }
+
+                return;
+            }
+
+            // Countdown elapsed -> attempt to reconnect now.
+            _reconnectSecondsRemaining = 0;
+            await AttemptReconnectAsync();
+        }
+
+        private void ConnectNowButton_Click(object sender, RoutedEventArgs e)
+        {
+            Log.Information("Manual 'Connect now' requested.");
+            _reconnectSecondsRemaining = 0;
+            _ = AttemptReconnectAsync();
+        }
+
+        private async Task AttemptReconnectAsync()
+        {
+            if (_isCheckingConnectivity)
+            {
+                // A probe is already in flight; retry on the next tick.
+                _reconnectSecondsRemaining = 1;
+
+                if (!_reconnectCountdownTimer.IsEnabled)
+                {
+                    _reconnectCountdownTimer.Start();
+                }
+
+                return;
+            }
+
+            ConnectNowButton.IsEnabled = false;
+
+            bool online = await CheckInternetSafeAsync();
+
+            if (online)
+            {
+                _reconnectCountdownTimer.Stop();
+
+                bool wasReconnecting = _connectivityState == ConnectivityUiState.Reconnecting;
+                MediaItem station = _stationToResumeAfterReconnect;
+                _stationToResumeAfterReconnect = null;
+
+                EnterConnectedState();
+
+                if (wasReconnecting && station != null)
+                {
+                    Log.Information(
+                        "Internet restored. Auto-resuming station {Id} ({Title}).",
+                        station.Id,
+                        station.Title
+                    );
+
+                    await RunPlaybackOperationAsync(async () =>
+                    {
+                        await PlayStationAsync(station, "Connection restored");
+                    });
+                }
+
+                return;
+            }
+
+            // Still offline -> schedule the next wait.
+            if (_connectivityState == ConnectivityUiState.Reconnecting)
+            {
+                _reconnectBackoffStep++;
+                int delay = Math.Min(3 * (_reconnectBackoffStep + 1), 15); // 3,6,9,12,15,15,...
+                _reconnectSecondsRemaining = delay;
+                SetConnectivityStatus(ConnectivityUiState.Reconnecting, _reconnectSecondsRemaining);
+            }
+            else
+            {
+                _reconnectSecondsRemaining = 5;
+                SetConnectivityStatus(ConnectivityUiState.Connecting);
+            }
+
+            if (!_reconnectCountdownTimer.IsEnabled)
+            {
+                _reconnectCountdownTimer.Start();
+            }
+        }
+
+        private void SetConnectivityStatus(ConnectivityUiState state, int secondsRemaining = 0)
+        {
+            _connectivityState = state;
+
+            if (state == ConnectivityUiState.Reconnecting)
+            {
+                _reconnectSecondsRemaining = secondsRemaining;
+            }
+
+            RenderStatusBar();
+        }
+
+        // ---- Station buffering display (shares the same status bar) ----
+
+        private void PlaybackService_BufferingProgressChanged(object sender, double cache)
+        {
+            Dispatcher.Invoke(() => UpdateBuffering(cache));
+        }
+
+        private void UpdateBuffering(double cache)
+        {
+            int percent = (int)Math.Round(cache);
+
+            if (percent < 0) percent = 0;
+            if (percent > 100) percent = 100;
+
+            _bufferingPercent = percent;
+
+            // Buffering must never override an active connectivity message
+            // (Connecting / Reconnecting). Track the value but don't show it now.
+            if (_connectivityState == ConnectivityUiState.Connecting ||
+                _connectivityState == ConnectivityUiState.Reconnecting)
+            {
+                return;
+            }
+
+            _isBuffering = true;
+
+            // While buffering is still in progress, cancel any pending auto-hide.
+            _bufferingHideTimer.Stop();
+
+            // Once fully buffered, keep "Buffering 100%" visible briefly, then hide.
+            if (percent >= 100)
+            {
+                _bufferingHideTimer.Start();
+            }
+
+            RenderStatusBar();
+        }
+
+        private void BufferingHideTimer_Tick(object sender, EventArgs e)
+        {
+            _bufferingHideTimer.Stop();
+            _isBuffering = false;
+            RenderStatusBar();
+        }
+
+        private void ClearBuffering()
+        {
+            _bufferingHideTimer.Stop();
+            _isBuffering = false;
+            RenderStatusBar();
+        }
+
+        /// <summary>
+        /// Single source of truth for the status bar. Priority (high to low):
+        /// Reconnecting > Connecting > Buffering > Connected > Hidden. Every state
+        /// change updates a field and calls this, so the two features (connectivity
+        /// and buffering) never clobber each other.
+        /// </summary>
+        private void RenderStatusBar()
+        {
+            if (_connectivityState == ConnectivityUiState.Reconnecting)
+            {
+                ConnectivityStatusPanel.Visibility = Visibility.Visible;
+                ConnectivityStatusTextBlock.Foreground = _reconnectingBrush;
+                ConnectivityStatusTextBlock.Text = _reconnectSecondsRemaining == 1
+                    ? "Reconnect in 1 second"
+                    : "Reconnect in " + _reconnectSecondsRemaining + " seconds";
+                ConnectNowButton.Visibility = Visibility.Visible;
+                ConnectNowButton.IsEnabled = true;
+                return;
+            }
+
+            if (_connectivityState == ConnectivityUiState.Connecting)
+            {
+                ConnectivityStatusPanel.Visibility = Visibility.Visible;
+                ConnectivityStatusTextBlock.Foreground = _connectingBrush;
+                ConnectivityStatusTextBlock.Text = "Connecting to the internet...";
+                ConnectNowButton.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            if (_isBuffering)
+            {
+                ConnectivityStatusPanel.Visibility = Visibility.Visible;
+                ConnectivityStatusTextBlock.Foreground = _bufferingBrush;
+                ConnectivityStatusTextBlock.Text = "Buffering " + _bufferingPercent + "%";
+                ConnectNowButton.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            if (_connectivityState == ConnectivityUiState.Connected)
+            {
+                ConnectivityStatusPanel.Visibility = Visibility.Visible;
+                ConnectivityStatusTextBlock.Foreground = _connectedBrush;
+                ConnectivityStatusTextBlock.Text = "Connected!";
+                ConnectNowButton.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            ConnectivityStatusPanel.Visibility = Visibility.Collapsed;
+            ConnectNowButton.Visibility = Visibility.Collapsed;
         }
     }
 }

@@ -164,6 +164,7 @@
       <DependentUpon>AddStationWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="Models\DiscoveredRadioStream.cs" />
+    <Compile Include="Services\ConnectivityService.cs" />
     <Compile Include="Services\PythonStreamDiscoveryService.cs" />
     <Compile Include="Services\RadioStreamInfoService.cs" />
     <Compile Include="Models\StationWindowMode.cs" />

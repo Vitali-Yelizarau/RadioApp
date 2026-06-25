@@ -119,6 +119,35 @@
                                Margin="0,2,0,0"/>
                 </StackPanel>
             </Grid>
+
+            <!-- Internet connectivity status. Lives in the (previously empty)
+                 bottom row of the left panel and is anchored to the bottom, so it
+                 does not affect the centered player above it. -->
+            <StackPanel Grid.Row="1"
+                        x:Name="ConnectivityStatusPanel"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Bottom"
+                        Margin="0,0,0,8"
+                        Visibility="Collapsed">
+
+                <TextBlock x:Name="ConnectivityStatusTextBlock"
+                           Text=""
+                           FontSize="12"
+                           VerticalAlignment="Center"
+                           TextAlignment="Center"
+                           TextWrapping="Wrap"
+                           MaxWidth="170"/>
+
+                <Button x:Name="ConnectNowButton"
+                        Content="Connect now"
+                        Margin="8,0,0,0"
+                        Padding="6,1"
+                        FontSize="11"
+                        VerticalAlignment="Center"
+                        Visibility="Collapsed"
+                        Click="ConnectNowButton_Click"/>
+            </StackPanel>
         </Grid>
         <Grid Grid.Column="1" x:Name="StationsListAndButtonsGrid">
             <Grid.ColumnDefinitions>

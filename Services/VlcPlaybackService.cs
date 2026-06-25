@@ -20,6 +20,7 @@ namespace RadioApp.Services
         private bool _isInitialized;
         private string _currentStreamUrl;
         private int _lastLoggedBufferingCache = -1;
+        private int _lastRaisedBufferingCache = -1;
 
         // "Now playing" track title is polled periodically instead of relying solely on
         // Media.MetaChanged, because that event is not reliably re-raised by LibVLC when
@@ -32,6 +33,11 @@ namespace RadioApp.Services
         public event EventHandler PlaybackStopped;
         public event EventHandler<string> PlaybackFailed;
         public event EventHandler<string> NowPlayingTrackChanged;
+
+        // Raised as VLC fills its network/live cache (0..100). Used by the UI to show
+        // a "Buffering X%" indicator. De-duplicated by integer percent so the UI is not
+        // flooded with identical values that VLC can report repeatedly.
+        public event EventHandler<double> BufferingProgressChanged;
 
         public bool IsPlaying
         {
@@ -190,6 +196,10 @@ namespace RadioApp.Services
                 StopInternal();
 
                 Thread.Sleep(500);
+
+                // Reset buffering trackers so the new stream reports a fresh 0..100 cycle.
+                _lastLoggedBufferingCache = -1;
+                _lastRaisedBufferingCache = -1;
 
                 _currentStreamUrl = streamUrl;
 
@@ -426,12 +436,20 @@ namespace RadioApp.Services
 
         private void MediaPlayer_Buffering(object sender, MediaPlayerBufferingEventArgs e)
         {
+            // Surface buffering progress to the UI, de-duplicated by integer percent
+            // so identical repeated values don't flood the dispatcher.
+            int cache = (int)Math.Round(e.Cache);
+
+            if (cache != _lastRaisedBufferingCache)
+            {
+                _lastRaisedBufferingCache = cache;
+                BufferingProgressChanged?.Invoke(this, e.Cache);
+            }
+
             //Log each 5 percents to reduce the length of the log file,
             //and also avoid logging the same value multiple times in a row
             //(since VLC can report the same cache value repeatedly during buffering).
             const int DIVISOR_VALUE__FOR_LOGGER = 5;
-
-            int cache = (int)Math.Round(e.Cache);
 
             if (cache % DIVISOR_VALUE__FOR_LOGGER != 0)
             {
