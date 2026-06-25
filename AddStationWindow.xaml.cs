@@ -31,6 +31,11 @@ namespace RadioApp
         private readonly StationWindowMode _mode;
         private readonly MediaItem _editingItem;
 
+        // Tracks the in-flight parser operation so it can be cancelled (and its
+        // parser process killed) if the user closes the window while discovery runs.
+        private CancellationTokenSource _activeOperationCts;
+        private bool _isWindowClosing;
+
         private string Description
         {
             get
@@ -216,6 +221,8 @@ namespace RadioApp
             }
             catch (TimeoutException ex)
             {
+                if (_isWindowClosing) return;
+
                 Log.Warning(
                     ex,
                     "Stream detection timed out. PageUrl: {PageUrl}, StreamUrl: {StreamUrl}, TimeoutSeconds: {TimeoutSeconds}",
@@ -231,8 +238,16 @@ namespace RadioApp
                     MessageBoxImage.Warning
                 );
             }
+            catch (OperationCanceledException)
+            {
+                // Window closed (or operation cancelled) while the parser was running.
+                // The parser process is terminated via OnClosed; nothing to report.
+                Log.Information("Stream detection cancelled (window closed).");
+            }
             catch (Exception ex)
             {
+                if (_isWindowClosing) return;
+
                 Log.Error(
                     ex,
                     "Stream detection failed. PageUrl: {PageUrl}, StreamUrl: {StreamUrl}",
@@ -288,6 +303,8 @@ namespace RadioApp
             }
             catch (TimeoutException ex)
             {
+                if (_isWindowClosing) return;
+
                 Log.Warning(
                     ex,
                     "Station action timed out. Mode: {Mode}, PageUrl: {PageUrl}, StreamUrl: {StreamUrl}, TimeoutSeconds: {TimeoutSeconds}",
@@ -304,8 +321,16 @@ namespace RadioApp
                     MessageBoxImage.Warning
                 );
             }
+            catch (OperationCanceledException)
+            {
+                // Window closed (or operation cancelled) while the parser was running.
+                // The parser process is terminated via OnClosed; nothing to report.
+                Log.Information("Add-station action cancelled (window closed).");
+            }
             catch (Exception ex)
             {
+                if (_isWindowClosing) return;
+
                 Log.Error(
                     ex,
                     "Station window action failed. Mode: {Mode}, PageUrl: {PageUrl}, StreamUrl: {StreamUrl}",
@@ -329,12 +354,25 @@ namespace RadioApp
 
         private async Task<T> RunWithTimeoutAsync<T>(Func<CancellationToken, Task<T>> operationFactory, int timeoutSeconds)
         {
-            using (var cancellationTokenSource = new CancellationTokenSource())
+            var cancellationTokenSource = new CancellationTokenSource();
+
+            // Expose the token source so OnClosed can cancel an in-flight parser run
+            // (which terminates the parser process) if the user closes the window early.
+            _activeOperationCts = cancellationTokenSource;
+
+            try
             {
                 Task<T> operationTask = operationFactory(cancellationTokenSource.Token);
-                Task timeoutTask = Task.Delay(TimeSpan.FromSeconds(timeoutSeconds));
+                Task timeoutTask = Task.Delay(TimeSpan.FromSeconds(timeoutSeconds), cancellationTokenSource.Token);
 
                 Task completedTask = await Task.WhenAny(operationTask, timeoutTask);
+
+                // External cancellation (window closing) — surface as cancellation,
+                // not as a timeout, so no error dialog is shown.
+                if (cancellationTokenSource.IsCancellationRequested)
+                {
+                    throw new OperationCanceledException(cancellationTokenSource.Token);
+                }
 
                 if (completedTask == timeoutTask)
                 {
@@ -346,6 +384,11 @@ namespace RadioApp
                 }
 
                 return await operationTask;
+            }
+            finally
+            {
+                _activeOperationCts = null;
+                cancellationTokenSource.Dispose();
             }
         }
 
@@ -872,8 +915,39 @@ namespace RadioApp
             Close();
         }
 
+        protected override void OnClosed(EventArgs e)
+        {
+            _isWindowClosing = true;
+
+            try
+            {
+                // Cancel any in-flight parser operation. The cancellation propagates to
+                // PythonStreamDiscoveryService, which terminates the parser process tree
+                // (parser + its child browser) so it doesn't keep running after the window
+                // is gone.
+                _activeOperationCts?.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // The operation already finished and disposed its token source.
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Failed to cancel in-flight parser operation on window close.");
+            }
+
+            base.OnClosed(e);
+        }
+
         private void SetBusyState(bool isBusy, string activeButtonText)
         {
+            // Once the window is closing, the controls are on their way out — don't
+            // touch them from a late-returning async continuation.
+            if (_isWindowClosing)
+            {
+                return;
+            }
+
             bool isEditMode = _mode == StationWindowMode.Edit;
 
             PageUrlTextBox.IsEnabled = !isBusy && !isEditMode;

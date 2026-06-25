@@ -206,13 +206,19 @@ namespace RadioApp.Services
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
 
-                // Wait for exit with CancellationToken support
-                await WaitForExitAsync(process, cancellationToken);
-
-                if (cancellationToken.IsCancellationRequested)
+                // Wait for exit with CancellationToken support. If the operation is
+                // cancelled (the user closed the Add-station window, or the timeout
+                // elapsed), WaitForExitAsync throws — at which point we terminate the
+                // whole parser process tree (parser + its child headless browser) so
+                // nothing keeps running in the background.
+                try
                 {
-                    try { process.Kill(); } catch { }
-                    cancellationToken.ThrowIfCancellationRequested();
+                    await WaitForExitAsync(process, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    await Task.Run(() => KillProcessTree(process)).ConfigureAwait(false);
+                    throw;
                 }
 
                 string stderr = stderrBuilder.ToString();
@@ -248,6 +254,76 @@ namespace RadioApp.Services
                 tcs.TrySetResult(true);
 
             return tcs.Task;
+        }
+
+        /// <summary>
+        /// Forcefully terminates the parser process AND its descendants (the parser
+        /// spawns a child Chromium headless-shell). .NET Framework 4.8 has no
+        /// Process.Kill(entireProcessTree:true), so killing only the parent would leave
+        /// the browser running; taskkill /T walks and kills the whole tree.
+        ///
+        /// Guarded by HasExited to avoid the (rare) case of taskkill hitting a PID that
+        /// Windows has already recycled for an unrelated process. Safe to call when the
+        /// process has already exited — it simply does nothing.
+        /// </summary>
+        private static void KillProcessTree(Process process)
+        {
+            if (process == null)
+                return;
+
+            int pid;
+
+            try
+            {
+                if (process.HasExited)
+                    return;
+
+                pid = process.Id;
+            }
+            catch
+            {
+                // Process was never started, or its handle is already gone.
+                return;
+            }
+
+            try
+            {
+                using (var killer = new Process())
+                {
+                    killer.StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "taskkill",
+                        Arguments = $"/PID {pid} /T /F",
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    };
+
+                    killer.Start();
+
+                    if (!killer.WaitForExit(5000))
+                    {
+                        Log.Warning(
+                            "[PythonParser] taskkill did not finish within 5s for PID {Pid}.",
+                            pid);
+                    }
+                }
+
+                Log.Information("[PythonParser] Killed parser process tree. PID={Pid}", pid);
+            }
+            catch (Exception ex)
+            {
+                // Fallback: at least try to kill the parent directly. The child browser
+                // may linger, but this is better than nothing if taskkill is unavailable.
+                Log.Warning(
+                    ex,
+                    "[PythonParser] taskkill failed for PID {Pid}; falling back to Process.Kill().",
+                    pid);
+
+                try { process.Kill(); }
+                catch { /* already gone */ }
+            }
         }
 
         // ----------------------------------------------------------------
