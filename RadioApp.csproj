@@ -215,6 +215,7 @@
       <Generator>SettingsSingleFileGenerator</Generator>
       <LastGenOutput>Settings.Designer.cs</LastGenOutput>
     </None>
+    <None Include="radioapp.db" />
     <None Include="README.md" />
   </ItemGroup>
   <ItemGroup>
